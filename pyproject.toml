@@ -35,7 +35,7 @@ dev = [
     "opencv-python>=4.12.0.88",
     "ruff>=0.14.6",
     "types-aioboto3[essential,rds,ssm]>=15.5.0",
-    "types-aiofiles>=25.1.0.20251011",
+    "types-aiofiles>=25.1.0.20260518",
 ]
 schema = [
     "inflect>=7.5.0",
