@@ -1,0 +1,76 @@
+services:
+  qmr-worker-init:
+    image: public.ecr.aws/docker/library/busybox:1.37
+    user: "0:0"
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p \
+          /var/lib/qmr-worker \
+          /var/cache/qmr-worker/models/huggingface \
+          /var/cache/qmr-worker/models/inductor \
+          /var/cache/qmr-worker/models/triton \
+          /var/cache/qmr-worker/models/xdg-cache
+        chown -R 2026:2026 /var/lib/qmr-worker /var/cache/qmr-worker
+    volumes:
+      - worker-storage:/var/lib/qmr-worker
+      - model-cache:/var/cache/qmr-worker/models
+    restart: "no"
+
+  qmr-worker:
+    build:
+      context: .
+      dockerfile: ${QMR_WORKER_DOCKERFILE:-Dockerfile}
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-local}
+    image: ${QMR_WORKER_IMAGE:-qmr-worker:local}
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HEALTH_PORT: "8080"
+      SSM_PARAMETER_PATH: ${SSM_PARAMETER_PATH:-}
+      SSM_PARAMETER_REGION: ${SSM_PARAMETER_REGION:-}
+      PARAMETER_PATH: ${PARAMETER_PATH:-}
+      WORKER_STORAGE_DIR: /var/lib/qmr-worker
+      TORCH_HOME: /var/cache/qmr-worker/models
+      HF_HOME: /var/cache/qmr-worker/models/huggingface
+      TORCHINDUCTOR_CACHE_DIR: /var/cache/qmr-worker/models/inductor
+      TRITON_CACHE_DIR: /var/cache/qmr-worker/models/triton
+      XDG_CACHE_HOME: /var/cache/qmr-worker/models/xdg-cache
+    ports:
+      - "${QMR_WORKER_HEALTH_PORT:-8080}:8080"
+    volumes:
+      - worker-storage:/var/lib/qmr-worker
+      - model-cache:/var/cache/qmr-worker/models
+    depends_on:
+      qmr-worker-init:
+        condition: service_completed_successfully
+    restart: always
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 150
+      start_period: 10s
+
+  postgres:
+    profiles:
+      - local-db
+    image: public.ecr.aws/docker/library/postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  worker-storage:
+  model-cache:
+  postgres-data:

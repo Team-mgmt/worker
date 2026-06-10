@@ -1,0 +1,133 @@
+name: Build and Deploy (Main)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    runs-on: namespace-profile-ubuntu-latest-amd64-small
+    environment: production
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    outputs:
+      sha_short: ${{ steps.git-data.outputs.sha_short }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: namespacelabs/nscloud-checkout-action@938f5d2d403d6224d9a0c0dc559b1dae09c2ede4 # v8.1.1
+        with:
+          submodules: recursive
+
+      - name: Checkout Database Schema
+        uses: namespacelabs/nscloud-checkout-action@938f5d2d403d6224d9a0c0dc559b1dae09c2ede4 # v8.1.1
+        with:
+          repository: ${{ vars.QMR_WEB_REPOSITORY }}
+          ref: main
+          fetch-depth: 1
+          path: qmr-web
+          token: ${{ secrets.QMR_WEB_ACCESS_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@08c4be7e2e672a47d11bd04269e27e5f3e8529cb # v6.0.0
+        with:
+          run_install: false
+          package_json_file: qmr-web/package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: "qmr-web/.node-version"
+          cache: "pnpm"
+          cache-dependency-path: "qmr-web/pnpm-lock.yaml"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Set up cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          cache: |
+            pnpm
+            uv
+
+      - name: Deploy Database Schema
+        run: |
+          cd qmr-web
+          pnpm install
+          pnpm --filter @qmr/database run deploy
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+
+      - name: Generate Database Schema
+        run: |
+          uv sync --locked --only-group schema
+          uv run ./scripts/generate.sh --silent
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+
+      - name: Lint
+        run: |
+          uv sync --locked
+          uv run python -m mypy worker --show-error-context
+
+      - name: Get Git Data
+        id: git-data
+        run: |
+          git config --global core.abbrev 8
+          echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create Version String
+        id: version
+        env:
+          MAJOR_VERSION: ${{ vars.MAJOR_VERSION }}
+        run: |
+          DATE=$(date +'%y%m%d')
+          TIME=$(date +'%H%M')
+          echo "version=${MAJOR_VERSION}.${DATE}.${TIME}+${{ steps.git-data.outputs.sha_short }}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_NAME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Create deployment revision
+        id: revision
+        env:
+          REVISION_PREFIX: qmr-worker-cpu
+          SHA_SHORT: ${{ steps.git-data.outputs.sha_short }}
+        run: bash .github/workflows/scripts/create-deployment-revision.sh
+
+      - name: Upload revision to S3
+        env:
+          CODEDEPLOY_S3_LOCATION: ${{ vars.CODEDEPLOY_S3_BUCKET }}
+          REVISION_LATEST_NAME: latest.zip
+          REVISION_NAME: ${{ steps.revision.outputs.revision_name }}
+        run: bash .github/workflows/scripts/upload-revision.sh

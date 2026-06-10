@@ -1,0 +1,58 @@
+# Git files
+.git/
+.github/
+**/.git/
+**/.github/
+.gitignore
+
+# IDE specific
+.vscode/
+**/.vscode/
+
+# Language specific
+# Python
+__pycache__/
+**/__pycache__/
+*.egg-info
+
+# Virtual environments
+.venv/
+**/.venv/
+
+venv/
+**/venv/
+
+# Tools cache
+.mypy_cache/
+**/.mypy_cache/
+
+.ruff_cache/
+**/.ruff_cache/
+
+# Dotenv files
+.env
+.env*local
+**/.env
+**/.env*local
+
+# Reference files
+references/
+
+# Dockerfile itself should not be copied to context
+Dockerfile
+Dockerfile.*
+.dockerignore
+
+# Project specific files
+data/
+docs/
+build/
+sqlacodegen_custom/
+
+# Development/IDE files
+.serena/
+.claude/
+playground/
+audit/
+AGENTS.md
+README.md

@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: namespace-profile-ubuntu-latest-amd64-small
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Checkout Database Schema
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ vars.QMR_WEB_REPOSITORY }}
+          ref: develop
+          fetch-depth: 1
+          path: qmr-web
+          token: ${{ secrets.QMR_WEB_ACCESS_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+          package_json_file: qmr-web/package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: "qmr-web/.node-version"
+          cache: "pnpm"
+          cache-dependency-path: "qmr-web/pnpm-lock.yaml"
+
+      - name: Deploy Database Schema
+        run: |
+          cd qmr-web
+          pnpm install
+          pnpm --filter @qmr/database run deploy
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+
+      - name: Generate Database Models
+        run: |
+          uv sync --locked --only-group schema
+          uv run ./scripts/generate.sh --silent
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+
+      - name: Upload generated models
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: generated-models
+          path: worker/generated/
+          retention-days: 1
+
+  lint:
+    runs-on: namespace-profile-ubuntu-latest-amd64-small
+    needs: generate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Download generated models
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: generated-models
+          path: worker/generated/
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Lint
+        run: |
+          uv sync --locked
+          uv run python -m ruff check worker/
+
+  typecheck:
+    runs-on: namespace-profile-ubuntu-latest-amd64-small
+    needs: generate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Download generated models
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: generated-models
+          path: worker/generated/
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Type check
+        run: |
+          uv sync --locked
+          uv run python -m mypy worker/
+
+  test:
+    runs-on: namespace-profile-ubuntu-latest-amd64-small
+    needs: generate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Download generated models
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: generated-models
+          path: worker/generated/
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Run tests
+        run: |
+          uv sync --locked --group test
+          uv run pytest tests/ -m "not smoke" --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=90
+
+      - name: Coverage summary
+        if: always()
+        uses: irongut/CodeCoverageSummary@51cc3a756ddcd398d447c044c02cb6aa83fdae95 # v1.3.0
+        with:
+          filename: coverage.xml
+          format: markdown
+          output: both
+          badge: true
+          fail_below_min: false
+
+      - name: Add coverage to PR
+        if: github.event_name == 'pull_request' && always()
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+        with:
+          path: code-coverage-results.md
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 30

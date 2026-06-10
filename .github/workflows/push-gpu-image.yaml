@@ -1,0 +1,157 @@
+name: Push GPU Image to Docker Hub
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize by ref so a stale run can't overwrite a newer mutable tag
+# (latest / main / develop). Cancelling in-flight work is safe here because
+# Docker Hub pushes are per-tag atomic; partial blobs are harmless.
+concurrency:
+  group: push-gpu-image-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  push-image:
+    runs-on: namespace-profile-ubuntu-latest-amd64-small
+    environment: ${{ github.ref_name == 'main' && 'production' || 'development' }}
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: namespacelabs/nscloud-checkout-action@938f5d2d403d6224d9a0c0dc559b1dae09c2ede4 # v8.1.1
+        with:
+          submodules: recursive
+
+      - name: Checkout Database Schema
+        uses: namespacelabs/nscloud-checkout-action@938f5d2d403d6224d9a0c0dc559b1dae09c2ede4 # v8.1.1
+        with:
+          repository: ${{ vars.QMR_WEB_REPOSITORY }}
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+          path: qmr-web
+          token: ${{ secrets.QMR_WEB_ACCESS_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@08c4be7e2e672a47d11bd04269e27e5f3e8529cb # v6.0.0
+        with:
+          run_install: false
+          package_json_file: qmr-web/package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: "qmr-web/.node-version"
+          cache: "pnpm"
+          cache-dependency-path: "qmr-web/pnpm-lock.yaml"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Set up framework caches
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          cache: |
+            pnpm
+            uv
+
+      - name: Deploy Database Schema
+        run: |
+          cd qmr-web
+          pnpm install
+          pnpm --filter @qmr/database run deploy
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+
+      - name: Generate Database Schema
+        run: |
+          uv sync --locked --only-group schema
+          uv run ./scripts/generate.sh --silent
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+
+      - name: Get Git Data
+        id: git-data
+        run: |
+          git config --global core.abbrev 8
+          echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create Version String
+        id: version
+        env:
+          MAJOR_VERSION: ${{ vars.MAJOR_VERSION }}
+        run: |
+          DATE=$(date +'%y%m%d')
+          TIME=$(date +'%H%M')
+          echo "version=${MAJOR_VERSION}.${DATE}.${TIME}+${{ steps.git-data.outputs.sha_short }}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute image tags
+        id: tags
+        env:
+          REPO: ${{ vars.DOCKERHUB_REPOSITORY }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA_SHORT: ${{ steps.git-data.outputs.sha_short }}
+        run: |
+          # Refuse to publish from unexpected refs. workflow_dispatch has no
+          # branch restriction, so without this guard a manual run from a
+          # feature branch would overwrite the :develop tag with unmerged
+          # code.
+          case "${REF_NAME}" in
+            main)
+              TAGS=("${REPO}:latest" "${REPO}:main" "${REPO}:main-${SHA_SHORT}")
+              ;;
+            develop)
+              TAGS=("${REPO}:develop" "${REPO}:develop-${SHA_SHORT}")
+              ;;
+            *)
+              echo "Refusing to publish image for ref '${REF_NAME}'; only 'main' and 'develop' are allowed." >&2
+              exit 1
+              ;;
+          esac
+          {
+            echo "tags<<EOF"
+            printf '%s\n' "${TAGS[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push GPU image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: Dockerfile.gpu
+          push: true
+          platforms: linux/amd64
+          build-args: |
+            BUILD_VERSION=${{ steps.version.outputs.version }}
+          tags: ${{ steps.tags.outputs.tags }}

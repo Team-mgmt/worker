@@ -1,0 +1,105 @@
+FROM ghcr.io/astral-sh/uv:latest AS uv
+
+# Use NVIDIA CUDA base image
+FROM nvidia/cuda:12.9.1-cudnn-runtime-ubuntu24.04 AS base
+
+# Install Python 3.12 and base dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  apt-get update && \
+  apt-get install -qy software-properties-common && \
+  add-apt-repository -y ppa:deadsnakes/ppa
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  apt-get update && \
+  apt-get install -qy python3.12 python3.12-venv python3.12-dev python3-pip \
+    curl unzip jq git build-essential cmake && \
+  update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
+  update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+FROM base AS builder
+
+COPY ./scripts/update-hashes.sh update-hashes.sh
+COPY --from=uv /uv /uvx /bin/
+COPY ./pyproject.toml ./uv.lock /app/
+COPY ./vendor/romav2 /app/vendor/romav2
+
+# Build wheels for all dependencies including GPU group
+RUN mkdir /app/wheels && \
+  uv sync --locked --no-dev --group gpu --no-editable && \
+  pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels ./vendor/romav2 && \
+  uv export --no-emit-project --no-dev --group gpu --no-editable --no-emit-package romav2 > /app/requirements.txt && \
+  pip wheel --no-cache-dir --wheel-dir /app/wheels -r /app/requirements.txt && \
+  bash update-hashes.sh "/app/wheels" "/app/requirements.txt"
+
+FROM base AS runner
+
+RUN groupadd --gid 2026 runner && \
+  useradd --uid 2026 --gid 2026 --create-home runner && \
+  mkdir -p /app /var/lib/qmr-worker /var/cache/qmr-worker/models/inductor && \
+  chown -R runner:runner /app /var/lib/qmr-worker /var/cache/qmr-worker
+
+ARG TARGETARCH
+
+# Install AWS CLI v2
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+  ARCH="x86_64"; \
+  elif [ "${TARGETARCH}" = "arm64" ]; then \
+  ARCH="aarch64"; \
+  else \
+  echo "Unsupported architecture: ${TARGETARCH}"; \
+  exit 1; \
+  fi && \
+  curl "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o "awscliv2.zip" && \
+  unzip -qq awscliv2.zip && \
+  ./aws/install && \
+  rm -rf awscliv2.zip aws
+
+# Install RDS CA Bundle
+RUN curl "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" -o /usr/local/share/ca-certificates/aws-rds.crt && \
+  update-ca-certificates
+
+USER runner
+
+# Install from pre-built wheels
+RUN \
+  --mount=type=bind,from=builder,source=/app/wheels,target=/tmp/wheels,ro \
+  --mount=type=bind,from=builder,source=/app/requirements.txt,target=/tmp/requirements.txt,ro \
+  pip install --no-cache-dir --no-index --break-system-packages --find-links=/tmp/wheels -r /tmp/requirements.txt && \
+  pip install --no-cache-dir --no-index --no-deps --break-system-packages --find-links=/tmp/wheels romav2
+
+COPY --chown=runner:runner ./scripts/docker-entrypoint.sh /docker-entrypoint.sh
+COPY --chown=runner:runner ./worker /app/worker
+COPY --chown=runner:runner ./assets/warmup /app/assets/warmup
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=300s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+
+ARG BUILD_VERSION=unknown
+ENV SENTRY_RELEASE=${BUILD_VERSION}
+ENV WORKER_MODE=gpu
+ENV TORCH_FLOAT32_MATMUL_PRECISION=highest
+ENV PYTHONUNBUFFERED=1
+
+# Storage for transient job artifacts (images, templates, results).
+ENV WORKER_STORAGE_DIR=/var/lib/qmr-worker
+
+# Model + torch.compile caches. Point every cache-capable library at one
+# directory so a single mounted volume persists all of them across restarts,
+# avoiding a ~several-minute torch.compile on each cold start. The inductor
+# subpath matches the S3 cache layout the runtime upload hook expects.
+ENV MODEL_CACHE_DIR=/var/cache/qmr-worker/models
+ENV TORCH_HOME=${MODEL_CACHE_DIR}
+ENV HF_HOME=${MODEL_CACHE_DIR}/huggingface
+ENV TORCHINDUCTOR_CACHE_DIR=${MODEL_CACHE_DIR}/inductor
+ENV TRITON_CACHE_DIR=${MODEL_CACHE_DIR}/triton
+ENV XDG_CACHE_HOME=${MODEL_CACHE_DIR}/xdg-cache
+
+VOLUME ["/var/lib/qmr-worker", "/var/cache/qmr-worker/models"]
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
