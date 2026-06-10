@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${CODEDEPLOY_S3_LOCATION:?CODEDEPLOY_S3_LOCATION must be set}"
+: "${REVISION_LATEST_NAME:?REVISION_LATEST_NAME must be set}"
+: "${REVISION_NAME:?REVISION_NAME must be set}"
+
+CODEDEPLOY_S3_BUCKET="${CODEDEPLOY_S3_LOCATION%%/*}"
+if [[ "${CODEDEPLOY_S3_LOCATION}" == *"/"* ]]; then
+  S3_BASE="s3://${CODEDEPLOY_S3_BUCKET}/${CODEDEPLOY_S3_LOCATION#*/}"
+else
+  S3_BASE="s3://${CODEDEPLOY_S3_BUCKET}"
+fi
+
+aws s3 cp "${REVISION_NAME}" "${S3_BASE}/revisions/${REVISION_NAME}"
+aws s3 cp "${REVISION_NAME}" "${S3_BASE}/revisions/${REVISION_LATEST_NAME}"

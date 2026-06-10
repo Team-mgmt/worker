@@ -1,0 +1,3 @@
+from typing import Any, Iterator
+
+def default_guarded_getiter(obj: Any) -> Iterator[Any]: ...

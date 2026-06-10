@@ -1,0 +1,7 @@
+FROM busybox
+
+WORKDIR /context
+
+COPY . .
+
+RUN find . -type f

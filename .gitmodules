@@ -1,0 +1,3 @@
+[submodule "vendor/romav2"]
+	path = vendor/romav2
+	url = https://github.com/Parskatt/RoMaV2.git
