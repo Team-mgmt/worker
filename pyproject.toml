@@ -45,7 +45,7 @@ schema = [
 gpu = [
     "torch>=2.5.0",
     "torchvision>=0.20.0",
-    "einops>=0.8.1",
+    "einops>=0.8.2",
 ]
 test = [
     "aioresponses>=0.7.8",
