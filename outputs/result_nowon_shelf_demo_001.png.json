@@ -1,0 +1,192 @@
+{
+  "session_id": 17,
+  "library_code": "111058",
+  "estimated_shelf": {
+    "kdc_start": 810.0,
+    "kdc_end": 819.99,
+    "dominant_class": "813.6",
+    "confidence": 0.75,
+    "basis": "3 of 4 high-confidence matched books"
+  },
+  "results": [
+    {
+      "detected_order": 1,
+      "matched_book": "지우전",
+      "matched_call_number": "813.6 박62ㅈ",
+      "match_score": 80.0,
+      "decision": "normal",
+      "reason": null,
+      "ocr_call_number": "813.6 박62ㅈ",
+      "ocr_title": "지우전",
+      "matched_holding_id": 103,
+      "matched_book_id": 103,
+      "score_margin": 26.41269841269842,
+      "top_candidates": [
+        {
+          "book_id": 103,
+          "holding_id": 103,
+          "title": "지우전",
+          "author": "박영광",
+          "call_number": "813.6 박62ㅈ",
+          "score": 80.0
+        },
+        {
+          "book_id": 57,
+          "holding_id": 57,
+          "title": "전우치전",
+          "author": "김혜영 글 노이정 그림",
+          "call_number": "813.5 초228ㅇ",
+          "score": 53.58730158730158
+        },
+        {
+          "book_id": 108,
+          "holding_id": 108,
+          "title": "지상의 방 한 칸",
+          "author": "박영광",
+          "call_number": "813.6 박64ㅈ",
+          "score": 51.666666666666664
+        }
+      ]
+    },
+    {
+      "detected_order": 2,
+      "matched_book": "나비사냥 SEASON 2",
+      "matched_call_number": "813.6 박64ㄴ v.2",
+      "match_score": 65.0,
+      "decision": "normal",
+      "reason": null,
+      "ocr_call_number": "813.6 박64ㄴ v.2",
+      "ocr_title": "나비사냥 SEASON 2",
+      "matched_holding_id": 104,
+      "matched_book_id": 104,
+      "score_margin": 17.666666666666664,
+      "top_candidates": [
+        {
+          "book_id": 104,
+          "holding_id": 104,
+          "title": "나비사냥 SEASON 2",
+          "author": "박영광",
+          "call_number": "813.6 박64ㄴ v.2",
+          "score": 65.0
+        },
+        {
+          "book_id": 42,
+          "holding_id": 42,
+          "title": "궁극의 아이 : 장용민 장편소설",
+          "author": "장용민 지음",
+          "call_number": "813.6 장66구",
+          "score": 47.333333333333336
+        },
+        {
+          "book_id": 68,
+          "holding_id": 68,
+          "title": "반짝이는 안녕 : 황영미 장편소설",
+          "author": "황영미 지음",
+          "call_number": "813.7 황64ㅂ",
+          "score": 42.53763440860215
+        }
+      ]
+    },
+    {
+      "detected_order": 3,
+      "matched_book": "궁극의 아이 : 장용민 장편소설",
+      "matched_call_number": "813.6 장66구",
+      "match_score": 50.21739130434783,
+      "decision": "needs_review",
+      "reason": "점수 격차가 작아 검토 필요",
+      "ocr_call_number": "813.6 박64ㄴ",
+      "ocr_title": "내일의 여자",
+      "matched_holding_id": 42,
+      "matched_book_id": 42,
+      "score_margin": 0.21739130434782794,
+      "top_candidates": [
+        {
+          "book_id": 42,
+          "holding_id": 42,
+          "title": "궁극의 아이 : 장용민 장편소설",
+          "author": "장용민 지음",
+          "call_number": "813.6 장66구",
+          "score": 50.21739130434783
+        },
+        {
+          "book_id": 108,
+          "holding_id": 108,
+          "title": "지상의 방 한 칸",
+          "author": "박영광",
+          "call_number": "813.6 박64ㅈ",
+          "score": 50.0
+        },
+        {
+          "book_id": 107,
+          "holding_id": 107,
+          "title": "못된 정신의 확산",
+          "author": "박영광",
+          "call_number": "813.6 박64ㅁ",
+          "score": 49.61538461538461
+        }
+      ]
+    },
+    {
+      "detected_order": 4,
+      "matched_book": "지우전",
+      "matched_call_number": "813.6 박62ㅈ",
+      "match_score": 80.0,
+      "decision": "normal",
+      "reason": null,
+      "ocr_call_number": "813.6 박62ㅈ",
+      "ocr_title": "지우전",
+      "matched_holding_id": 103,
+      "matched_book_id": 103,
+      "score_margin": 26.41269841269842,
+      "top_candidates": [
+        {
+          "book_id": 103,
+          "holding_id": 103,
+          "title": "지우전",
+          "author": "박영광",
+          "call_number": "813.6 박62ㅈ",
+          "score": 80.0
+        },
+        {
+          "book_id": 57,
+          "holding_id": 57,
+          "title": "전우치전",
+          "author": "김혜영 글 노이정 그림",
+          "call_number": "813.5 초228ㅇ",
+          "score": 53.58730158730158
+        },
+        {
+          "book_id": 108,
+          "holding_id": 108,
+          "title": "지상의 방 한 칸",
+          "author": "박영광",
+          "call_number": "813.6 박64ㅈ",
+          "score": 51.666666666666664
+        }
+      ]
+    },
+    {
+      "detected_order": 5,
+      "matched_book": "영어로 영어를 가르치자!",
+      "matched_call_number": "740 황19ㅇ",
+      "match_score": 75.0,
+      "decision": "suspected_misplacement",
+      "reason": "주변 도서 대부분이 813.6 문맥이며 해당 도서는 740 분류임",
+      "ocr_call_number": "740 황19ㅇ",
+      "ocr_title": "영어로 영어를 가르치자!",
+      "matched_holding_id": 109,
+      "matched_book_id": 109,
+      "score_margin": null,
+      "top_candidates": [
+        {
+          "book_id": 109,
+          "holding_id": 109,
+          "title": "영어로 영어를 가르치자!",
+          "author": "황인기",
+          "call_number": "740 황19ㅇ",
+          "score": 75.0
+        }
+      ]
+    }
+  ]
+}

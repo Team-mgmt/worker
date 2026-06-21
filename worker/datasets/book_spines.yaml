@@ -1,0 +1,7 @@
+path: ../datasets/book_spines
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: book_spine

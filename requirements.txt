@@ -1,0 +1,30 @@
+# Runtime dependencies for local pip-based setup.
+# Keep this file in sync with [project].dependencies in pyproject.toml.
+sqlalchemy[asyncio]>=2.0.41
+pydantic>=2.12.5
+python-dotenv>=1.2.1
+opencv-contrib-python-headless>=4.12.0.88
+opencv-python-headless>=4.12.0.88
+zxing-cpp>=2.3.0
+uuid7-standard>=1.1.0
+pillow>=12.0.0
+sentry-sdk>=2.48.0
+fastapi[standard]>=0.127.0
+psycopg[binary]>=3.3.2
+aioboto3>=15.5.0
+aiofiles>=25.1.0
+pyjwt[crypto]>=2.10.1
+-e vendor/romav2
+cairosvg>=2.9.0
+opentelemetry-api>=1.41.1
+opentelemetry-sdk>=1.41.1
+opentelemetry-exporter-otlp-proto-http>=1.41.1
+scikit-learn>=1.8.0
+matplotlib>=3.10.9
+seaborn>=0.13.2
+
+# Added for Library Scan Vision/AI pipeline
+paddleocr
+rapidfuzz
+ultralytics
+python-multipart
