@@ -28,6 +28,7 @@ class Detection(Base):
     frame_no = Column(Integer)
     detected_order = Column(Integer)
     bbox = Column(JSONB)
+    crop_image_path = Column(Text, nullable=True)
     ocr_raw_text = Column(Text)
     ocr_title = Column(Text)
     ocr_author = Column(Text)
@@ -35,8 +36,10 @@ class Detection(Base):
     ocr_confidence = Column(Numeric, nullable=True)
     matched_book_id = Column(Integer, ForeignKey("books.book_id"), nullable=True)
     matched_holding_id = Column(Integer, ForeignKey("holdings.holding_id"), nullable=True)
+    match_method = Column(String(50), nullable=True)
     match_score = Column(Numeric, nullable=True)
     score_margin = Column(Numeric, nullable=True)
+    top_candidates = Column(JSONB, nullable=True)
     status = Column(String(50), nullable=False, default="unmatched") # normal, suspected_misplacement, needs_review, unmatched
     reason = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.current_timestamp())

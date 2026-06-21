@@ -27,6 +27,8 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "matplotlib>=3.10.9",
     "seaborn>=0.13.2",
+    "rapidfuzz>=3.14.5",
+    "python-multipart>=0.0.28",
 ]
 
 [dependency-groups]

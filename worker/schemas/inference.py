@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import BaseModel, Field
 
 class OCRResultItem(BaseModel):
@@ -8,6 +8,7 @@ class OCRResultItem(BaseModel):
     call_number: Optional[str] = None
     detected_order: int
     bbox: Optional[List[float]] = None
+    crop_image_path: Optional[str] = None
     ocr_confidence: Optional[float] = None
 
 class ScanSessionRequest(BaseModel):
@@ -19,29 +20,33 @@ class ScanSessionRequest(BaseModel):
     ocr_results: List[OCRResultItem]
 
 class MatchCandidate(BaseModel):
-    book_id: int
-    holding_id: int
+    book_id: Union[int, str]
+    holding_id: Union[int, str]
     title: str
     author: str
     call_number: str
     score: float
+    match_method: str
 
 class DetectionResult(BaseModel):
     detected_order: int
     bbox: Optional[List[float]] = None
+    crop_image_path: Optional[str] = None
+    ocr_raw_text: Optional[str] = None
+    ocr_title: Optional[str] = None
+    ocr_author: Optional[str] = None
+    ocr_call_number: Optional[str] = None
+    ocr_confidence: Optional[float] = None
     matched_book: Optional[str] = None
     matched_call_number: Optional[str] = None
+    match_method: Optional[str] = None
     match_score: Optional[float] = None
     decision: str # normal, suspected_misplacement, needs_review, unmatched
     reason: Optional[str] = None
-    
-    # Keeping extra debug fields optional
-    ocr_call_number: Optional[str] = None
-    ocr_title: Optional[str] = None
-    matched_holding_id: Optional[int] = None
-    matched_book_id: Optional[int] = None
+    matched_holding_id: Optional[Union[int, str]] = None
+    matched_book_id: Optional[Union[int, str]] = None
     score_margin: Optional[float] = None
-    top_candidates: List[MatchCandidate] = []
+    top_candidates: List[MatchCandidate] = Field(default_factory=list)
 
 class EstimatedShelf(BaseModel):
     kdc_start: Optional[float] = None

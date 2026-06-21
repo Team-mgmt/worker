@@ -1,156 +1,246 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from typing import List
-import os
 import json
+import os
+from pathlib import Path
+
+from PIL import Image
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from worker.core.database import get_db
-from worker.schemas.inference import ScanSessionRequest, MatchResponse, DetectionResult, MatchCandidate, OCRResultItem
-from worker.db_models.inference import ScanSession, Detection
-from worker.services.matching_service import find_matches_for_ocr, estimate_kdc_session, evaluate_misplacement
+from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest
+from worker.services.inference_service import process_scan_session_request
 
 router = APIRouter(prefix="/inference", tags=["Inference"])
 
+TEST_IMAGES_DIR = Path(__file__).resolve().parents[1] / "tests" / "test_images"
+BBOXES_JSON = Path(__file__).resolve().parents[1] / "tests" / "bboxes.json"
+
+
 @router.post("/scan", response_model=MatchResponse)
 async def process_scan_session(request: ScanSessionRequest, db: AsyncSession = Depends(get_db)):
-    # 1. Create ScanSession
-    session_db = ScanSession(
-        library_code=request.library_code,
-        room_name=request.room_name,
-        expected_shelf_start=request.expected_shelf_start,
-        expected_shelf_end=request.expected_shelf_end,
-        source_type="API_MOCK",
-        source_path=request.source_name
-    )
-    db.add(session_db)
-    await db.flush() # get session_id
-    
-    detection_results: List[DetectionResult] = []
-    
-    # 2. Process each OCR item
-    for ocr in request.ocr_results:
-        candidates = await find_matches_for_ocr(db, request.library_code, ocr)
-        
-        top1_score = candidates[0].score if candidates else None
-        top2_score = candidates[1].score if len(candidates) > 1 else None
-        score_margin = (top1_score - top2_score) if top1_score is not None and top2_score is not None else None
-        
-        matched_holding_id = candidates[0].holding_id if candidates else None
-        matched_book_id = candidates[0].book_id if candidates else None
-        matched_book = candidates[0].title if candidates else None
-        matched_call_number = candidates[0].call_number if candidates else None
-        
-        # Initial temp status, will be refined after KDC estimation
-        res = DetectionResult(
-            detected_order=ocr.detected_order,
-            bbox=ocr.bbox,
-            ocr_call_number=ocr.call_number,
-            ocr_title=ocr.title,
-            decision="unmatched", 
-            matched_holding_id=matched_holding_id,
-            matched_book_id=matched_book_id,
-            matched_book=matched_book,
-            matched_call_number=matched_call_number,
-            match_score=top1_score,
-            score_margin=score_margin,
-            top_candidates=candidates
-        )
-        detection_results.append(res)
-        
-    # 3. KDC Session Estimation
-    est_shelf = estimate_kdc_session(detection_results)
-    
-    # 4. Evaluate Misplacement
-    for res in detection_results:
-        decision, reason = evaluate_misplacement(res, est_shelf)
-        res.decision = decision
-        res.reason = reason
-            
-        # 5. Save Detections to DB
-        det_db = Detection(
-            scan_session_id=session_db.scan_session_id,
-            detected_order=res.detected_order,
-            ocr_raw_text=res.matched_book,
-            ocr_call_number=res.ocr_call_number,
-            ocr_confidence=ocr.ocr_confidence if hasattr(ocr, 'ocr_confidence') else None,
-            matched_book_id=res.matched_book_id,
-            matched_holding_id=res.matched_holding_id,
-            match_score=res.match_score,
-            score_margin=res.score_margin,
-            status=res.decision,
-            reason=res.reason
-        )
-        db.add(det_db)
-        
-    await db.commit()
-    
-    return MatchResponse(
-        session_id=session_db.scan_session_id,
-        library_code=request.library_code,
-        estimated_shelf=est_shelf,
-        results=detection_results
-    )
+    return await process_scan_session_request(request, db)
+
 
 @router.post("/upload_demo", response_model=MatchResponse)
 async def upload_demo(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     filename = file.filename
-    temp_path = os.path.join("outputs", filename)
+    if not filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
+
     os.makedirs("outputs", exist_ok=True)
-    with open(temp_path, "wb") as f:
+    temp_path = Path("outputs") / filename
+    with temp_path.open("wb") as f:
         f.write(await file.read())
-        
-    bboxes_json = r"C:\dev\comp_lib\worker\worker\tests\bboxes.json"
-    if not os.path.exists(bboxes_json):
+
+    if not BBOXES_JSON.exists():
         raise HTTPException(status_code=500, detail="bboxes.json not found")
-        
-    with open(bboxes_json, "r", encoding="utf-8") as f:
+
+    with BBOXES_JSON.open("r", encoding="utf-8") as f:
         bboxes_data = json.load(f)
-        
+
     matched_key = None
-    for k in bboxes_data.keys():
-        if filename in k or k in filename:
-            matched_key = k
+    for key in bboxes_data:
+        if filename in key or key in filename:
+            matched_key = key
             break
-            
+
     if not matched_key:
-        print(f"Filename {filename} didn't match. Defaulting to nowon_shelf_real_001.jpg")
         matched_key = "nowon_shelf_real_001.jpg"
-        
-    boxes = bboxes_data[matched_key]
-    
+
     from worker.services.vision_service import vision_service
+
     ocr_results_payload = []
-    
-    # FOR DEMO: Use the original high-res image for OCR to avoid BBox misalignment 
-    # caused by browser resizing or compression.
-    pristine_img_path = os.path.join(r"C:\dev\comp_lib\worker\worker\tests\test_images", matched_key)
-    
-    for i, box_info in enumerate(boxes):
+    pristine_img_path = TEST_IMAGES_DIR / matched_key
+
+    for i, box_info in enumerate(bboxes_data[matched_key]):
         x, y, w, h = box_info["bbox"]
         try:
-            extracted = vision_service.manual_crop_and_ocr(pristine_img_path, (x, y, w, h), preprocess=True)
+            extracted = vision_service.manual_crop_and_ocr(str(pristine_img_path), (x, y, w, h), preprocess=True)
             text = " ".join([res["text"] for res in extracted])
             confidence = sum([res["confidence"] for res in extracted]) / len(extracted) if extracted else 0.0
-        except Exception as e:
-            print(f"OCR Error for box {i}: {e}")
+        except Exception as exc:
+            print(f"OCR error for box {i}: {exc}")
             text = ""
             confidence = 0.0
-            
-        ocr_results_payload.append(OCRResultItem(
-            detected_order=i+1,
-            raw_text=text,
-            title=box_info.get("expected_title"),
-            call_number=text,
-            bbox=[x, y, x+w, y+h],
-            ocr_confidence=confidence
-        ))
-        
+
+        ocr_results_payload.append(
+            OCRResultItem(
+                detected_order=i + 1,
+                raw_text=text,
+                title=box_info.get("expected_title"),
+                call_number=text,
+                bbox=[x, y, x + w, y + h],
+                crop_image_path=None,
+                ocr_confidence=confidence,
+            )
+        )
+
     req = ScanSessionRequest(
         library_code="111058",
-        room_name="노원중앙종합자료실",
+        room_name="Nowon Jungang Library",
         source_name=filename,
-        ocr_results=ocr_results_payload
+        ocr_results=ocr_results_payload,
     )
-    
-    return await process_scan_session(req, db)
+
+    return await process_scan_session_request(req, db, persist=False)
+
+
+@router.post("/analyze_yolo", response_model=MatchResponse)
+async def analyze_yolo(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    conf_threshold: float = 0.35,
+    preprocess: bool = True,
+    library_code: str = "111058",
+    room_name: str = "노원중앙도서관 종합자료실",
+):
+    filename = file.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
+
+    from worker.services.detection_service import detector_service
+
+    if not detector_service.is_ready:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Book-spine YOLO model is not ready. Expected model at {detector_service.model_path}.",
+        )
+
+    os.makedirs("outputs/uploads", exist_ok=True)
+    safe_filename = Path(filename).name
+    temp_path = Path("outputs/uploads") / safe_filename
+    with temp_path.open("wb") as f:
+        f.write(await file.read())
+
+    try:
+        boxes = detector_service.detect_spines(str(temp_path), conf_threshold=conf_threshold)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"YOLO detection failed: {exc}") from exc
+
+    from worker.services.vision_service import vision_service
+
+    ocr_results_payload = []
+    for index, (x, y, w, h) in enumerate(boxes, start=1):
+        try:
+            extracted = vision_service.manual_crop_and_ocr(str(temp_path), (x, y, w, h), preprocess=preprocess)
+            text = " ".join([res["text"] for res in extracted])
+            confidence = sum([res["confidence"] for res in extracted]) / len(extracted) if extracted else 0.0
+        except Exception as exc:
+            print(f"OCR error for YOLO box {index}: {exc}")
+            text = ""
+            confidence = 0.0
+
+        ocr_results_payload.append(
+            OCRResultItem(
+                detected_order=index,
+                raw_text=text,
+                call_number=text,
+                bbox=[x, y, x + w, y + h],
+                crop_image_path=None,
+                ocr_confidence=confidence,
+            )
+        )
+
+    req = ScanSessionRequest(
+        library_code=library_code,
+        room_name=room_name,
+        source_name=safe_filename,
+        ocr_results=ocr_results_payload,
+    )
+
+    return await process_scan_session_request(req, db, persist=False)
+
+
+@router.get("/analyze_yolo")
+async def analyze_yolo_status():
+    from worker.services.detection_service import detector_service
+
+    return {
+        "ok": True,
+        "method": "POST",
+        "content_type": "multipart/form-data",
+        "field": "file",
+        "model_ready": detector_service.is_ready,
+        "model_path": detector_service.model_path,
+        "message": "Upload a shelf image with POST /inference/analyze_yolo.",
+    }
+
+
+def normalized_bbox_to_pixels(bbox: list[float], image_width: int, image_height: int) -> list[float]:
+    x1, y1, x2, y2 = bbox
+    return [
+        max(0.0, min(image_width, (x1 / 1000.0) * image_width)),
+        max(0.0, min(image_height, (y1 / 1000.0) * image_height)),
+        max(0.0, min(image_width, (x2 / 1000.0) * image_width)),
+        max(0.0, min(image_height, (y2 / 1000.0) * image_height)),
+    ]
+
+
+@router.post("/analyze_vlm", response_model=MatchResponse)
+async def analyze_vlm(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    library_code: str = "111058",
+    room_name: str = "노원중앙도서관 종합자료실",
+):
+    filename = file.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
+
+    os.makedirs("outputs/uploads", exist_ok=True)
+    safe_filename = Path(filename).name
+    temp_path = Path("outputs/uploads") / safe_filename
+    with temp_path.open("wb") as f:
+        f.write(await file.read())
+
+    from worker.services.vlm_service import VLMServiceError, analyze_shelf_image_with_vlm
+
+    try:
+        with Image.open(temp_path) as image:
+            image_width, image_height = image.size
+        vlm_result = await analyze_shelf_image_with_vlm(temp_path)
+    except VLMServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"VLM analysis failed: {exc}") from exc
+
+    ocr_results_payload = []
+    for spine in vlm_result.spines:
+        bbox = normalized_bbox_to_pixels(spine.bbox, image_width, image_height)
+        ocr_results_payload.append(
+            OCRResultItem(
+                detected_order=spine.order,
+                raw_text=spine.raw_text or "",
+                title=spine.title,
+                author=spine.author,
+                call_number=spine.call_number or spine.raw_text or "",
+                bbox=bbox,
+                crop_image_path=None,
+                ocr_confidence=spine.confidence,
+            )
+        )
+
+    req = ScanSessionRequest(
+        library_code=library_code,
+        room_name=room_name,
+        source_name=safe_filename,
+        ocr_results=ocr_results_payload,
+    )
+
+    return await process_scan_session_request(req, db, persist=False)
+
+
+@router.get("/analyze_vlm")
+async def analyze_vlm_status():
+    from worker.core.config import settings
+
+    return {
+        "ok": True,
+        "method": "POST",
+        "content_type": "multipart/form-data",
+        "field": "file",
+        "model": settings.VLM_MODEL,
+        "api_base_url": settings.VLM_API_BASE_URL,
+        "api_key_ready": bool(settings.VLM_API_KEY or settings.OPENAI_API_KEY),
+        "message": "Upload a shelf image with POST /inference/analyze_vlm.",
+    }

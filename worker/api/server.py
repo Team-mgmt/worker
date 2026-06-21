@@ -5,6 +5,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from worker.api import catalog, inference
 
@@ -25,6 +26,13 @@ app.add_middleware(
 # Mount Routers
 app.include_router(catalog.router)
 app.include_router(inference.router)
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Unhandled worker error: {exc}"},
+    )
 
 @app.get("/health")
 def health_check():

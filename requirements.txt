@@ -22,9 +22,9 @@ opentelemetry-exporter-otlp-proto-http>=1.41.1
 scikit-learn>=1.8.0
 matplotlib>=3.10.9
 seaborn>=0.13.2
+rapidfuzz>=3.14.5
+python-multipart>=0.0.28
 
-# Added for Library Scan Vision/AI pipeline
-paddleocr
-rapidfuzz
-ultralytics
-python-multipart
+# Optional future YOLO/PaddleOCR path:
+#   uv add ultralytics paddleocr
+# The current MVP uses /inference/analyze_vlm and does not require them.

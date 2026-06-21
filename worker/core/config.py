@@ -1,10 +1,13 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/postgres"
     JUNGBO_NARU_API_KEY: str = ""
     NL_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    VLM_API_KEY: str = ""
+    VLM_API_BASE_URL: str = "https://api.openai.com/v1"
+    VLM_MODEL: str = "gpt-4o-mini"
     
     @property
     def async_database_url(self) -> str:
