@@ -28,14 +28,25 @@ def split_call_number(call_number: str) -> Tuple[str, str]:
     if not rest:
         return class_no, ""
 
+    hangul_book_code_match = re.search(r"([가-힣A-Za-z0-9.-]+)", rest)
+    if hangul_book_code_match:
+        return class_no, hangul_book_code_match.group(1)
+
     book_code_match = re.search(r"([가-힣A-Za-z0-9.-]+)", rest)
     book_code = book_code_match.group(1) if book_code_match else rest.split()[0]
     return class_no, book_code
 
 
 def has_reliable_book_code(book_code: str) -> bool:
-    """Author symbols usually include digits, e.g. 박94구 or 한12ㅈ."""
+    """Author symbols usually include digits, e.g. bak94gu or han12j."""
     return bool(book_code and re.search(r"\d", book_code))
+
+
+def has_ocr_evidence(result: DetectionResult) -> bool:
+    return any(
+        bool(value and value.strip())
+        for value in (result.ocr_call_number, result.ocr_title, result.ocr_author, result.ocr_raw_text)
+    )
 
 
 def compute_similarity(ocr_text: str | None, db_text: str | None) -> float:
@@ -243,17 +254,21 @@ def estimate_kdc_session(results: List[DetectionResult]) -> Optional[EstimatedSh
 
 def evaluate_misplacement(result: DetectionResult, est_shelf: Optional[EstimatedShelf]) -> Tuple[str, Optional[str]]:
     """Classify a detected book using match confidence and shelf context."""
+    if not result.top_candidates:
+        if has_ocr_evidence(result):
+            return "needs_review", "OCR \ud14d\uc2a4\ud2b8\ub294 \uc778\uc2dd\ud588\uc9c0\ub9cc DB \ud6c4\ubcf4\ub97c \ucc3e\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4. \uc801\uc7ac \ubc94\uc704 \ub610\ub294 \uccad\uad6c\uae30\ud638 \uc778\uc2dd\uc744 \ud655\uc778\ud574\uc57c \ud569\ub2c8\ub2e4."
+        return "unmatched", None
+
     if result.match_score is None or result.match_score < 50.0:
+        if has_ocr_evidence(result):
+            return "needs_review", "OCR \ud14d\uc2a4\ud2b8\ub294 \uc778\uc2dd\ud588\uc9c0\ub9cc DB \ub9e4\uce6d \uc810\uc218\uac00 \ub0ae\uc544 \uc218\ub3d9 \uac80\uc218\uac00 \ud544\uc694\ud569\ub2c8\ub2e4."
         return "unmatched", None
 
     if result.match_score < MIN_CONFIRMED_MATCH_SCORE:
-        return "needs_review", "매칭 점수가 낮아 확정 도서로 판정하지 않았습니다."
+        return "needs_review", "\ub9e4\uce6d \uc810\uc218\uac00 \ub0ae\uc544 \ud655\uc815 \ub3c4\uc11c\ub85c \ud310\uc815\ud558\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4."
 
     if result.score_margin is not None and result.score_margin < 10.0 and result.match_score < 85.0:
-        return "needs_review", "상위 후보 간 점수 차이가 작아 검수가 필요합니다."
-
-    if not result.top_candidates:
-        return "unmatched", None
+        return "needs_review", "\uc0c1\uc704 \ud6c4\ubcf4 \uac04 \uc810\uc218 \ucc28\uc774\uac00 \uc791\uc544 \uac80\uc218\uac00 \ud544\uc694\ud569\ub2c8\ub2e4."
 
     call_number = result.top_candidates[0].call_number
     match = re.match(r"^([\d.]+)", call_number)
@@ -265,7 +280,7 @@ def evaluate_misplacement(result: DetectionResult, est_shelf: Optional[Estimated
 
         kdc_bin = (kdc_val // 10) * 10
         if est_shelf.confidence is not None and est_shelf.confidence >= 0.7 and kdc_bin != est_shelf.kdc_start:
-            reason = f"주변 서가의 주 분류는 {est_shelf.dominant_class}인데, 이 책은 KDC {kdc_bin:.0f} 계열입니다."
+            reason = f"\uc8fc\ubcc0 \uc11c\uac00\uc758 \uc8fc \ubd84\ub958\ub294 {est_shelf.dominant_class}\uc778\ub370, \uc774 \ucc45\uc740 KDC {kdc_bin:.0f} \uacc4\uc5f4\uc785\ub2c8\ub2e4."
             return "suspected_misplacement", reason
 
     return "normal", None
