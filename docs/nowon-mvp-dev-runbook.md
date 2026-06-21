@@ -207,4 +207,50 @@ docker cp C:\dev\comp_lib\shelfalign.dump shelfalign-postgres:/tmp/shelfalign.du
 docker exec shelfalign-postgres pg_restore -U shelfalign -d shelfalign --clean --if-exists /tmp/shelfalign.dump
 ```
 
-엑셀처럼 빠르게 확인해야 할 때는 CSV를 `exports/` 아래로 뽑아도 됩니다. 다만 `exports/`는 생성 산출물이므로 GitHub에 커밋하지 않습니다.
+복원 확인:
+
+```powershell
+docker exec shelfalign-postgres psql -U shelfalign -d shelfalign -c "SELECT COUNT(*) FROM \"LibraryBook\";"
+docker exec shelfalign-postgres psql -U shelfalign -d shelfalign -c "SELECT COUNT(*) FROM \"LibraryHolding\";"
+```
+
+## dump가 없을 때 CSV로 데이터 확인/적재하기
+
+DB dump가 가장 안전한 공유 방식입니다. 다만 dump 파일이 없고, 엑셀처럼 확인 가능한 파일만 있는 경우에는 `exports/` 아래 CSV를 별도로 팀원에게 전달할 수 있습니다.
+
+현재 로컬에 생성된 CSV 예시는 다음과 같습니다.
+
+```text
+exports/노원중앙도서관_API추출 3천건정도.csv
+```
+
+주의: `exports/`는 생성 산출물이므로 GitHub에 커밋하지 않습니다. 필요한 경우 파일만 따로 전달합니다.
+
+CSV는 두 가지 용도로 사용할 수 있습니다.
+
+1. DataGrip에서 데이터 확인용으로 열기
+2. 임시 테이블에 import한 뒤 `LibraryBook`, `LibraryHolding`으로 적재하기
+
+DataGrip에서 확인만 할 때는 CSV 파일을 DataGrip으로 열거나, PostgreSQL에 임시 테이블을 만들고 Import Data from File을 사용합니다.
+
+예시 임시 테이블:
+
+```sql
+CREATE TABLE IF NOT EXISTS "NowonCatalogImport" (
+  isbn13 TEXT,
+  bookname TEXT,
+  authors TEXT,
+  publisher TEXT,
+  publication_year TEXT,
+  library_code TEXT,
+  shelf_loc_code TEXT,
+  shelf_loc_name TEXT,
+  call_number TEXT,
+  class_no TEXT,
+  book_code TEXT
+);
+```
+
+DataGrip에서 `"NowonCatalogImport"` 테이블을 우클릭한 뒤 `Import Data from File`로 CSV를 넣습니다. CSV 컬럼명이 다르면 DataGrip의 column mapping 화면에서 맞춰줍니다.
+
+그 다음 실제 Prisma 테이블로 옮기는 방식은 CSV 컬럼명과 현재 schema에 맞춰 별도 insert 쿼리를 작성해야 합니다. 이 단계는 실수하면 중복 데이터가 생기기 쉬워서, 팀원 환경 세팅 목적이라면 CSV import보다 dump 복원을 우선 사용합니다.
