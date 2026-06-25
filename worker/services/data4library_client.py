@@ -19,8 +19,7 @@ def collect_item_srch(lib_code: str, start_page: int = 1, max_pages: int = None,
         params = {
             "authKey": api_key,
             "libCode": lib_code,
-            "startDt": "2024-01-01",
-            "endDt": "2026-12-31",
+            "type": "ALL",
             "pageNo": current_page,
             "pageSize": page_size,
             "format": "json"
