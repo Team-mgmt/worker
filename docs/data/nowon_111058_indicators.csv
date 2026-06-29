@@ -1,0 +1,2 @@
+﻿library,lib_code,collection_size_true,sample_size,sample_note,isbn_missing_pct,isbn_missing_caveat,bookcode_missing_pct_sample,bookcode_missing_pct_full_est,callnumber_constructible_pct,kdc_classes_present,kdc_norm_entropy,top_class,top_class_share_pct,dup_copy_rate_pct,mvp_korlit_janghap_count
+노원중앙도서관,111058,242065,136400,최신 등록순 56% (편향: 옛날책 누락),0.0,itemSrch가 ISBN보유분만 반환 추정 → 비교지표 신뢰도 낮음,5.925,"≈10%+ (옛날책 18.9% 반영, 표본보다 높음)",94.075,10/10,0.8194,800 문학,40.63,5.125,14825
