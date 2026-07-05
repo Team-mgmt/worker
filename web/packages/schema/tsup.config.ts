@@ -1,6 +1,9 @@
 import { defineConfig } from "tsup";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const isWatch = process.argv.includes("--watch");
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   entry: [
@@ -32,7 +35,7 @@ export default defineConfig({
   onSuccess: "tsc --emitDeclarationOnly --declaration --declarationMap",
   esbuildOptions(options) {
     options.alias = {
-      "@": "./src",
+      "@": resolve(__dirname, "src"),
     };
   },
 });
