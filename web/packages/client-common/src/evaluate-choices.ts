@@ -1,7 +1,7 @@
-import type { ChoicePartial } from "@shelfalign/schema/models/choice";
-
-// Re-export ChoicePartial as Choice for backward compatibility
-export type Choice = ChoicePartial;
+export interface Choice {
+  localId: string;
+  [key: string]: unknown;
+}
 
 /**
  * Custom error class for signaling invalid input values in toChoices/fromChoices.
