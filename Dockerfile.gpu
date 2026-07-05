@@ -1,5 +1,3 @@
-FROM ghcr.io/astral-sh/uv:latest AS uv
-
 # Use NVIDIA CUDA base image
 FROM nvidia/cuda:12.9.1-cudnn-runtime-ubuntu24.04 AS base
 
@@ -24,18 +22,10 @@ WORKDIR /app
 
 FROM base AS builder
 
-COPY ./scripts/update-hashes.sh update-hashes.sh
-COPY --from=uv /uv /uvx /bin/
-COPY ./pyproject.toml ./uv.lock /app/
-COPY ./vendor/romav2 /app/vendor/romav2
+COPY ./requirements.txt /app/requirements.txt
 
-# Build wheels for all dependencies including GPU group
 RUN mkdir /app/wheels && \
-  uv sync --locked --no-dev --group gpu --no-editable && \
-  pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels ./vendor/romav2 && \
-  uv export --no-emit-project --no-dev --group gpu --no-editable --no-emit-package romav2 > /app/requirements.txt && \
-  pip wheel --no-cache-dir --wheel-dir /app/wheels -r /app/requirements.txt && \
-  bash update-hashes.sh "/app/wheels" "/app/requirements.txt"
+  pip wheel --no-cache-dir --wheel-dir /app/wheels -r /app/requirements.txt
 
 FROM base AS runner
 
@@ -70,8 +60,7 @@ USER runner
 RUN \
   --mount=type=bind,from=builder,source=/app/wheels,target=/tmp/wheels,ro \
   --mount=type=bind,from=builder,source=/app/requirements.txt,target=/tmp/requirements.txt,ro \
-  pip install --no-cache-dir --no-index --break-system-packages --find-links=/tmp/wheels -r /tmp/requirements.txt && \
-  pip install --no-cache-dir --no-index --no-deps --break-system-packages --find-links=/tmp/wheels romav2
+  pip install --no-cache-dir --no-index --break-system-packages --find-links=/tmp/wheels -r /tmp/requirements.txt
 
 COPY --chown=runner:runner ./scripts/docker-entrypoint.sh /docker-entrypoint.sh
 COPY --chown=runner:runner ./worker /app/worker

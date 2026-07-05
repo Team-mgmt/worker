@@ -1,0 +1,177 @@
+name: Frontend Deploy (Main)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/frontend/**"
+      - "apps/student/**"
+      - "apps/teacher/**"
+      - "apps/scan/**"
+      - "apps/backoffice/**"
+      - "packages/**"
+      - ".github/workflows/frontend-main.yaml"
+      - ".github/workflows/scripts/**"
+      - ".node-version"
+      - "turbo.json"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Frontend app to deploy.
+        default: all
+        required: true
+        type: choice
+        options:
+          - all
+          - frontend
+          - student
+          - teacher
+          - scan
+          - backoffice
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_matrix: ${{ steps.deployments.outputs.deploy_matrix }}
+      has_deployments: ${{ steps.deployments.outputs.has_deployments }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect Changed Files
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            : > changed-files.txt
+          else
+            before="${{ github.event.before }}"
+            after="${{ github.sha }}"
+
+            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              git diff --name-only "${after}^" "$after" > changed-files.txt 2> /dev/null || git ls-tree -r --name-only "$after" > changed-files.txt
+            else
+              git diff --name-only "$before" "$after" > changed-files.txt
+            fi
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Detect Deployments
+        id: deployments
+        env:
+          BUILD_ARG: ""
+          DEPLOY_TARGET: production
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_APP: ${{ inputs.app || 'all' }}
+        run: node .github/workflows/scripts/select-frontend-deployments.mjs
+          --changed-files changed-files.txt
+
+  build:
+    name: Build ${{ matrix.displayName }}
+    needs: changes
+    if: ${{ needs.changes.outputs.has_deployments == 'true' }}
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.changes.outputs.deploy_matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_NAME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+
+      - name: Cache Turborepo
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .turbo/cache
+          key: ${{ runner.os }}-turbo-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ runner.arch }}-
+
+      - name: Build
+        run: bash "${{ matrix.buildScript }}"
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          PARAMETER_PATH: ${{ vars.PARAMETER_PATH }}
+
+      - name: Archive Build Artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-${{ matrix.app }}-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ matrix.distPath }}
+
+  deploy:
+    name: Deploy ${{ matrix.displayName }}
+    needs:
+      - changes
+      - build
+    if: ${{ needs.changes.outputs.has_deployments == 'true' }}
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.changes.outputs.deploy_matrix) }}
+
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: build-${{ matrix.app }}-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ matrix.distPath }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_NAME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp --recursive "${{ matrix.distPath }}/" "s3://${{ vars.S3_LOCATION }}/"
+
+      - name: Deploy
+        run: |
+          aws cloudfront create-invalidation --distribution-id ${{ vars.CLOUDFRONT_ID }} --paths "/*"

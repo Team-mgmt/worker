@@ -1,0 +1,17 @@
+==== Error histogram on stream ecs/backend/0aad4fcf1ca84b47a8af308115c331df ====
+Task lifetime: 2026-05-04 11:40:08 UTC → 2026-05-05 05:44:00 UTC (~18h 4m)
+
+ClusterAllFailedError "Failed to refresh slots cache" per UTC hour:
+  2026-05-04 23 UTC     241
+  2026-05-05 00 UTC    2039
+  2026-05-05 01 UTC    1789
+  2026-05-05 02 UTC    1790
+  2026-05-05 03 UTC    1790
+  2026-05-05 04 UTC    1789
+  2026-05-05 05 UTC    1431
+
+Singular trigger events:
+  ReplyError "IAM Authentication service is not available": 1  (at 2026-05-04 21:16:50 UTC)
+  ReplyError "WRONGPASS invalid username-password pair":     1  (at 2026-05-04 23:58:33 UTC)
+
+Cluster wedged from 23:58:33 onwards. Manually recovered at 05:44:56 UTC by deploying a new image (cold-restart of the iovalkey Cluster object).

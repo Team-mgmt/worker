@@ -1,0 +1,261 @@
+{
+  "$schema": "https://v2-9-6.turborepo.dev/schema.json",
+  "concurrency": "16",
+  "globalPassThroughEnv": [
+    "DATABASE_HOST",
+    "DATABASE_NAME",
+    "DATABASE_PASS",
+    "DATABASE_PORT",
+    "DATABASE_SECRET_ID",
+    "DATABASE_USER",
+    "SENTRY_AUTH_TOKEN"
+  ],
+  "tasks": {
+    "generate": {
+      "dependsOn": [
+        "^generate"
+      ]
+    },
+    "@shelfalign/database#generate": {
+      "inputs": [
+        "prisma/schema.prisma",
+        "scripts/generate.sh",
+        "package.json"
+      ],
+      "outputs": [
+        "src/generated/prisma/**"
+      ]
+    },
+    "@shelfalign/database#generate:sql": {
+      "dependsOn": [
+        "@shelfalign/database#build"
+      ],
+      "inputs": [
+        "prisma/schema.prisma",
+        "prisma/sql/**",
+        "package.json"
+      ],
+      "outputs": [
+        "src/generated/prisma/**"
+      ]
+    },
+    "@shelfalign/database#build": {
+      "dependsOn": [
+        "@shelfalign/database#generate"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!prisma/sql/**",
+        "!src/generated/prisma/sql/**",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "@shelfalign/database#build:sql": {
+      "dependsOn": [
+        "@shelfalign/database#generate:sql"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**"
+      ],
+      "outputs": [
+        "dist/sql.*",
+        "dist/generated/prisma/sql/**"
+      ]
+    },
+    "@shelfalign/schema#build": {
+      "dependsOn": [
+        "@shelfalign/database#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "@shelfalign/backend#build": {
+      "dependsOn": [
+        "@shelfalign/database#build:sql",
+        "@shelfalign/schema#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "@shelfalign/backend#build:staging": {
+      "dependsOn": [
+        "@shelfalign/database#build:sql",
+        "@shelfalign/schema#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "@shelfalign/backend#build:dev": {
+      "dependsOn": [
+        "@shelfalign/database#build:sql",
+        "@shelfalign/schema#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "@shelfalign/backend#check-types": {
+      "dependsOn": [
+        "@shelfalign/database#build:sql",
+        "@shelfalign/schema#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ]
+    },
+    "@shelfalign/backend#test": {
+      "dependsOn": [
+        "@shelfalign/database#build:sql",
+        "@shelfalign/schema#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ]
+    },
+    "dev": {
+      "dependsOn": [
+        "@shelfalign/database#generate",
+        "@shelfalign/schema#build"
+      ],
+      "persistent": true,
+      "cache": false
+    },
+    "dev:anyopen": {
+      "dependsOn": [
+        "@shelfalign/database#generate",
+        "@shelfalign/schema#build"
+      ],
+      "persistent": true,
+      "cache": false
+    },
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "build:staging": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "build:dev": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "check-types": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ]
+    },
+    "lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!node_modules/**",
+        "!dist/**",
+        "!.turbo/**",
+        "!.tanstack/**"
+      ]
+    },
+    "clean": {
+      "dependsOn": [
+        "^clean"
+      ]
+    }
+  }
+}

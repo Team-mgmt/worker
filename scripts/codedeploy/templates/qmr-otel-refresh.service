@@ -1,8 +1,0 @@
-[Unit]
-Description=Refresh QMR OTel Collector config + env from SSM
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/qmr-otel-refresh

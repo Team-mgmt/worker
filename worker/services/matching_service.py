@@ -62,14 +62,20 @@ def compute_total_score(
     score_author: float,
     has_class_no: bool,
     has_reliable_bcode: bool,
+    has_ocr_title: bool = True,
 ) -> tuple[float, str]:
     bibliographic_score = (score_title * 0.8) + (score_author * 0.2)
     call_number_score = (score_class * 0.55) + (score_bcode * 0.45)
 
     if has_class_no and has_reliable_bcode:
+        # If OCR didn't find a title, don't heavily penalize the score if call number is good
+        if not has_ocr_title:
+            return (call_number_score * 0.9) + (bibliographic_score * 0.1), "call_number_dominant"
         return (call_number_score * 0.65) + (bibliographic_score * 0.35), "call_number"
 
     if has_class_no:
+        if not has_ocr_title:
+            return (call_number_score * 0.9) + (bibliographic_score * 0.1), "call_number_dominant"
         return (bibliographic_score * 0.9) + (score_class * 0.1), "bibliographic_fuzzy"
 
     return bibliographic_score, "bibliographic_fuzzy"
@@ -125,6 +131,7 @@ async def find_matches_for_ocr(
             score_author,
             bool(ocr_class_no),
             has_reliable_book_code(ocr_book_code),
+            has_ocr_title=bool(ocr_item.title),
         )
 
         candidates.append(
@@ -200,6 +207,7 @@ async def find_matches_for_ocr_from_prisma_catalog(
             score_author,
             bool(ocr_class_no),
             has_reliable_book_code(ocr_book_code),
+            has_ocr_title=bool(ocr_item.title),
         )
 
         candidates.append(

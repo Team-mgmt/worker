@@ -1,0 +1,190 @@
+name: Build and Deploy Backend (Develop)
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - "apps/backend/**"
+      - "packages/**"
+      - ".github/workflows/backend-develop.yaml"
+      - ".github/workflows/scripts/**"
+      - ".node-version"
+      - "turbo.json"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    runs-on: namespace-profile-ubuntu-latest-amd64-small
+    environment: backend-development
+
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: namespacelabs/nscloud-checkout-action@938f5d2d403d6224d9a0c0dc559b1dae09c2ede4 # v8.1.1
+
+      - name: Clean Checkout
+        run: git clean -ffdx
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_NAME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@56e477618cce98febf3d0a2c579775a8f99ea5c1 # v2.1.3
+
+      - name: Login to Amazon ECR Public
+        uses: aws-actions/amazon-ecr-login@56e477618cce98febf3d0a2c579775a8f99ea5c1 # v2.1.3
+        with:
+          registry-type: public
+        env:
+          AWS_REGION: us-east-1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Lockfile
+        run: |
+          if grep -nE '^(---|\.\.\.)$' pnpm-lock.yaml pnpm-workspace.yaml; then
+            echo "::error::Lockfile YAML contains document separators."
+            exit 1
+          fi
+          if ! git diff --quiet -- pnpm-lock.yaml; then
+            git status --short -- pnpm-lock.yaml
+            echo "::error::pnpm-lock.yaml changed during dependency setup."
+            exit 1
+          fi
+
+      - name: Resolve Turbo version
+        id: turbo-version
+        run: .github/workflows/scripts/resolve-turbo-version.mjs
+
+      - name: Cache Prisma Client
+        id: prisma-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: packages/database/src/generated
+          key: prisma-generated-${{ runner.os }}-${{
+            hashFiles('packages/database/prisma/schema.prisma',
+            'packages/database/prisma/sql/**', 'packages/database/package.json')
+            }}
+
+      - name: Deploy Database Schema
+        if: steps.prisma-cache.outputs.cache-hit != 'true'
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: "5432"
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+        run: pnpm --filter @qmr/database run deploy
+
+      - name: Generate Prisma Client with Typed SQL
+        if: steps.prisma-cache.outputs.cache-hit != 'true'
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: "5432"
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+        run: pnpm --filter @qmr/database run generate:sql
+
+      - name: Get Git Data
+        id: git-data
+        run: |
+          git config --global core.abbrev 8
+          printf 'sha_short=%s\n' "$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Get Node.js version
+        id: node-version
+        run: |
+          printf 'node_version=%s\n' "$(cat .node-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and Push
+        id: build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: ./apps/backend/Dockerfile
+          push: true
+          provenance: false
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            NODE_VERSION=${{ steps.node-version.outputs.node_version }}
+            TURBO_VERSION=${{ steps.turbo-version.outputs.version }}
+          secrets: |
+            SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ vars.BACKEND_REPOSITORY }}:${{ steps.git-data.outputs.sha_short }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ vars.BACKEND_REPOSITORY }}:develop
+
+  deploy-develop:
+    runs-on: ubuntu-latest
+    environment: backend-development
+    needs:
+      - build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_NAME }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Deploy Amazon ECS task definition
+        run: |
+          aws ecs update-service \
+            --cluster ${{ vars.ECS_CLUSTER }} \
+            --service ${{ vars.ECS_SERVICE }} \
+            --force-new-deployment
+  # deploy-staging:
+  #   runs-on: ubuntu-latest
+  #   environment: backend-staging
+  #   needs:
+  #     - create-manifests
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+  #
+  #     - name: Configure AWS credentials
+  #       uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+  #       with:
+  #         role-to-assume: ${{ vars.AWS_ROLE_NAME }}
+  #         aws-region: ${{ vars.AWS_REGION }}
+  #
+  #     - name: Deploy Amazon ECS task definition
+  #       run: |
+  #         aws ecs update-service \
+  #           --cluster ${{ vars.ECS_CLUSTER }} \
+  #           --service ${{ vars.ECS_SERVICE }} \
+  #           --force-new-deployment

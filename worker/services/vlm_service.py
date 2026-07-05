@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from PIL import Image
 from pydantic import BaseModel, Field, ValidationError
 
 from worker.core.config import settings
@@ -56,15 +57,28 @@ Return JSON in this exact shape:
 
 Rules:
 - order must be left-to-right.
-- bbox must be approximate normalized coordinates from 0 to 1000 in the original image.
-- Focus on book spines only.
+- Return one item per physical book spine. Do not merge adjacent books into one bbox.
+- bbox must tightly cover only that book spine, using approximate normalized coordinates from 0 to 1000 in the original image.
+- Focus on book spines only. Ignore shelf edges, background, hands, labels not attached to a book, and gaps between books.
 - Prefer call numbers and visible labels over guessing titles.
 - Use Korean text exactly as visible when possible."""
 
 
 def _image_data_url(image_path: Path) -> str:
-    mime_type = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
-    encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    max_edge = settings.VLM_IMAGE_MAX_EDGE
+    jpeg_quality = settings.VLM_IMAGE_JPEG_QUALITY
+
+    with Image.open(image_path) as image:
+        image = image.convert("RGB")
+        image.thumbnail((max_edge, max_edge))
+
+        from io import BytesIO
+
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=jpeg_quality, optimize=True)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    mime_type = "image/jpeg"
     return f"data:{mime_type};base64,{encoded}"
 
 
@@ -85,6 +99,7 @@ def _post_chat_completion(image_path: Path) -> str:
     request_body = {
         "model": settings.VLM_MODEL,
         "temperature": 0,
+        "max_tokens": settings.VLM_MAX_TOKENS,
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -92,7 +107,13 @@ def _post_chat_completion(image_path: Path) -> str:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": USER_PROMPT},
-                    {"type": "image_url", "image_url": {"url": _image_data_url(image_path)}},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": _image_data_url(image_path),
+                            "detail": settings.VLM_IMAGE_DETAIL,
+                        },
+                    },
                 ],
             },
         ],
@@ -109,7 +130,7 @@ def _post_chat_completion(image_path: Path) -> str:
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with urllib.request.urlopen(request, timeout=settings.VLM_REQUEST_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
@@ -124,7 +145,16 @@ def _post_chat_completion(image_path: Path) -> str:
 
 
 async def analyze_shelf_image_with_vlm(image_path: Path) -> VLMAnalyzeResult:
-    raw_content = await asyncio.to_thread(_post_chat_completion, image_path)
+    try:
+        raw_content = await asyncio.wait_for(
+            asyncio.to_thread(_post_chat_completion, image_path),
+            timeout=settings.VLM_REQUEST_TIMEOUT_SECONDS + 5,
+        )
+    except TimeoutError as exc:
+        raise VLMServiceError(
+            f"VLM request timed out after {settings.VLM_REQUEST_TIMEOUT_SECONDS} seconds."
+        ) from exc
+
     try:
         return VLMAnalyzeResult.model_validate(_extract_json(raw_content))
     except (json.JSONDecodeError, ValidationError) as exc:

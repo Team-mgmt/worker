@@ -1,0 +1,427 @@
+generator client {
+  provider            = "prisma-client"
+  previewFeatures     = ["typedSql", "partialIndexes"]
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserType {
+  ADMIN
+  LIBRARIAN
+}
+
+enum ShelfDetectionStatus {
+  NORMAL
+  SUSPECTED_MISPLACEMENT
+  NEEDS_REVIEW
+  UNMATCHED
+}
+
+enum EmailKind {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+  INVITATION
+  SYSTEM
+}
+
+model Organization {
+  id        String    @id @db.Uuid
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  invitations       Invitation[]
+  members           OrganizationMember[]
+  permissionTuples  PermissionTuple[]
+  uploadFiles       UploadFile[]
+  emailLogs         EmailLog[]
+
+  @@index([deletedAt])
+  @@index([name])
+}
+
+model User {
+  id        String    @id @db.Uuid
+  name      String
+  phone     String?
+  nickname  String?   @unique
+  picture   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  sessions         Session[]
+  connections      ProviderConnection[] @relation("UserProviderConnections")
+  organizations    OrganizationMember[]
+  uploadFiles      UploadFile[]
+  emailLogs        EmailLog[]
+}
+
+model OrganizationMember {
+  id             String   @id @db.Uuid
+  userId         String   @db.Uuid
+  organizationId String   @db.Uuid
+  type           UserType
+  name           String
+
+  user             User              @relation(fields: [userId], references: [id])
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  permissionTuples PermissionTuple[]
+  invitations      Invitation[]
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([type])
+  @@index([organizationId, type])
+}
+
+model PermissionRelation {
+  id   String @id @db.Uuid
+  name String
+
+  tuples PermissionTuple[]
+}
+
+model PermissionTuple {
+  id             String  @id @db.Uuid
+  label          String  @default("")
+  namespace      String  @db.Uuid
+  objectId       String  @db.Uuid
+  relationId     String  @db.Uuid
+  memberId       String? @db.Uuid
+  targetId       String? @db.Uuid
+  organizationId String  @db.Uuid
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  revokedAt    DateTime?
+  revokeReason String?
+
+  relation     PermissionRelation  @relation(fields: [relationId], references: [id])
+  member       OrganizationMember? @relation(fields: [memberId], references: [id])
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  target       PermissionTuple?    @relation("PermissionTupleToPermissionTuple", fields: [targetId], references: [id])
+  references   PermissionTuple[]   @relation("PermissionTupleToPermissionTuple")
+
+  @@index([namespace, objectId])
+  @@index([relationId])
+  @@index([memberId])
+  @@index([targetId])
+  @@index([organizationId])
+  @@index([organizationId, namespace, objectId])
+  @@index([organizationId, relationId])
+  @@index([organizationId, memberId])
+  @@index([organizationId, targetId])
+}
+
+model Session {
+  id                   String @id @db.Uuid
+  userId               String @db.Uuid
+  providerConnectionId String @db.Uuid
+  metadata             Json
+
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user               User               @relation(fields: [userId], references: [id])
+  providerConnection ProviderConnection @relation(fields: [providerConnectionId], references: [id])
+  refreshTokens      RefreshToken[]
+
+  @@index([userId])
+  @@index([providerConnectionId])
+}
+
+model RefreshToken {
+  id            String    @id @db.Uuid
+  sessionId     String    @db.Uuid
+  familyId      String    @db.Uuid
+  tokenHash     String
+  expiresAt     DateTime
+  rotatedAt     DateTime?
+  rotatedFromId String?   @db.Uuid
+  createdAt     DateTime  @default(now())
+  revokedAt     DateTime?
+  revokedReason String?
+  metadata      Json
+
+  session     Session        @relation(fields: [sessionId], references: [id])
+  rotatedFrom RefreshToken?  @relation("RefreshTokenRotation", fields: [rotatedFromId], references: [id])
+  rotatedTo   RefreshToken[] @relation("RefreshTokenRotation")
+
+  @@unique([tokenHash])
+  @@index([sessionId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@index([rotatedAt])
+  @@index([rotatedFromId])
+}
+
+model Provider {
+  id        String    @id @db.Uuid
+  name      String
+  config    Json      @default("{}")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  connections ProviderConnection[]
+
+  @@index([deletedAt])
+  @@index([name, deletedAt])
+}
+
+model ProviderConnection {
+  id               String    @id @db.Uuid
+  userId           String    @db.Uuid
+  providerId       String    @db.Uuid
+  providerUniqueId String
+  email            String
+  data             Json
+  primary          Boolean   @default(false)
+  emailVerifiedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation("UserProviderConnections", fields: [userId], references: [id])
+  provider Provider  @relation(fields: [providerId], references: [id])
+  sessions Session[]
+
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+
+  @@unique([userId, providerId])
+  @@unique([userId, primary], where: { primary: true })
+  @@unique([providerId, providerUniqueId])
+  @@index([userId])
+  @@index([providerId])
+  @@index([email])
+  @@index([providerId, providerUniqueId])
+}
+
+model EmailVerificationToken {
+  id                   String    @id @db.Uuid
+  providerConnectionId String    @db.Uuid
+  tokenHash            String    @unique
+  email                String
+  expiresAt            DateTime
+  consumedAt           DateTime?
+  createdAt            DateTime  @default(now())
+
+  providerConnection ProviderConnection @relation(fields: [providerConnectionId], references: [id])
+
+  @@index([providerConnectionId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id                   String    @id @db.Uuid
+  providerConnectionId String    @db.Uuid
+  tokenHash            String    @unique
+  expiresAt            DateTime
+  consumedAt           DateTime?
+  createdAt            DateTime  @default(now())
+
+  providerConnection ProviderConnection @relation(fields: [providerConnectionId], references: [id])
+
+  @@index([providerConnectionId])
+  @@index([expiresAt])
+}
+
+model Invitation {
+  id             String    @id @db.Uuid
+  email          String
+  organizationId String    @db.Uuid
+  invitedById    String    @db.Uuid
+  acceptedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  revokedAt      DateTime?
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  invitedBy    OrganizationMember @relation(fields: [invitedById], references: [id])
+
+  @@unique([email, organizationId, acceptedAt])
+  @@index([organizationId])
+  @@index([invitedById])
+  @@index([email, acceptedAt, revokedAt])
+}
+
+model UploadFile {
+  id             String    @id @db.Uuid
+  key            String    @unique
+  filename       String
+  contentType    String
+  size           Int?
+  hash           String?
+  createdById    String?   @db.Uuid
+  organizationId String    @db.Uuid
+  createdAt      DateTime  @default(now())
+  finalizedAt    DateTime?
+
+  createdBy    User?        @relation(fields: [createdById], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([createdById])
+  @@index([organizationId])
+  @@index([createdAt])
+}
+
+model EmailLog {
+  id             String   @id @db.Uuid
+  userId         String?  @db.Uuid
+  organizationId String?  @db.Uuid
+  kind           EmailKind
+  toAddress      String
+  subject        String
+  transport      String
+  status         String
+  messageId      String?
+  error          String?
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  user         User?         @relation(fields: [userId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([kind])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Library {
+  id        String   @id @db.Uuid
+  code      String   @unique
+  name      String
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  holdings     LibraryHolding[]
+  scanSessions ShelfScanSession[]
+
+  @@index([name])
+}
+
+model LibraryBook {
+  id                 String   @id @db.Uuid
+  isbn13             String?  @unique
+  bookname           String
+  normalizedBookname String?
+  authors            String?
+  normalizedAuthors  String?
+  publisher          String?
+  publicationYear    String?
+  bookImageUrl       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  holdings   LibraryHolding[]
+  detections ShelfDetection[]
+
+  @@index([bookname])
+  @@index([normalizedBookname])
+}
+
+model LibraryHolding {
+  id                   String   @id @db.Uuid
+  bookId               String?  @db.Uuid
+  libraryId            String   @db.Uuid
+  libraryCode          String
+  classNo              String?
+  classNoClean         String?
+  classNoNum           Decimal? @db.Decimal(10, 3)
+  bookCode             String?
+  callNumber           String?
+  normalizedCallNumber String?
+  shelfLocCode         String?
+  shelfLocName         String?
+  separateShelfCode    String?
+  separateShelfName    String?
+  copyCode             String?
+  regDate              DateTime?
+  raw                  Json     @default("{}")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  book       LibraryBook?     @relation(fields: [bookId], references: [id])
+  library    Library          @relation(fields: [libraryId], references: [id])
+  detections ShelfDetection[]
+
+  @@index([bookId])
+  @@index([libraryId])
+  @@index([libraryCode])
+  @@index([libraryCode, classNoNum])
+  @@index([libraryCode, normalizedCallNumber])
+  @@index([libraryCode, shelfLocName])
+}
+
+model ShelfScanSession {
+  id                  String   @id @db.Uuid
+  libraryId           String   @db.Uuid
+  libraryCode         String
+  roomName            String?
+  sourceName          String?
+  sourceImageKey      String?
+  sourceImageUrl      String?
+  expectedShelfStart  Decimal? @db.Decimal(10, 3)
+  expectedShelfEnd    Decimal? @db.Decimal(10, 3)
+  estimatedShelfStart Decimal? @db.Decimal(10, 3)
+  estimatedShelfEnd   Decimal? @db.Decimal(10, 3)
+  shelfConfidence     Decimal? @db.Decimal(5, 4)
+  metadata            Json     @default("{}")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  library    Library          @relation(fields: [libraryId], references: [id])
+  detections ShelfDetection[]
+
+  @@index([libraryId])
+  @@index([libraryCode])
+  @@index([roomName])
+  @@index([createdAt])
+}
+
+model ShelfDetection {
+  id               String               @id @db.Uuid
+  scanSessionId    String               @db.Uuid
+  frameNo          Int?
+  detectedOrder    Int
+  bbox             Json
+  cropImageKey     String?
+  cropImageUrl     String?
+  ocrRawText       String?
+  ocrTitle         String?
+  ocrAuthor        String?
+  ocrCallNumber    String?
+  ocrConfidence    Decimal?             @db.Decimal(5, 4)
+  matchedBookId    String?              @db.Uuid
+  matchedHoldingId String?              @db.Uuid
+  matchMethod      String?
+  matchScore       Decimal?             @db.Decimal(6, 3)
+  scoreMargin      Decimal?             @db.Decimal(6, 3)
+  topCandidates    Json                 @default("[]")
+  status           ShelfDetectionStatus @default(UNMATCHED)
+  reason           String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  scanSession    ShelfScanSession @relation(fields: [scanSessionId], references: [id])
+  matchedBook    LibraryBook?      @relation(fields: [matchedBookId], references: [id])
+  matchedHolding LibraryHolding?   @relation(fields: [matchedHoldingId], references: [id])
+
+  @@index([scanSessionId])
+  @@index([detectedOrder])
+  @@index([matchedBookId])
+  @@index([matchedHoldingId])
+  @@index([status])
+}

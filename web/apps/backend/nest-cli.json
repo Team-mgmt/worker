@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "builder": "swc",
+    "deleteOutDir": true,
+    "tsConfigPath": "tsconfig.build.json",
+    "assets": [
+      {
+        "include": "core/seed/metrics/*.metric",
+        "outDir": "dist"
+      },
+      {
+        "include": "**/*.prompt.md",
+        "outDir": "dist"
+      },
+      {
+        "include": "scripts/*.lua",
+        "outDir": "dist"
+      }
+    ],
+    "watchAssets": true
+  }
+}

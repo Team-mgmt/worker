@@ -1,0 +1,246 @@
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --default-font-family: "Inter", "Spoqa Han Sans Neo", -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  --font-mono: 'NeoDGM Code', 'Fira Code', 'SF Mono', 'Roboto Mono', 'Ubuntu Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+@theme inline {
+  /* Radius — shadcn */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Radius — design tokens */
+  --radius-pill: var(--br-pill);
+  --radius-nav: var(--br-nav);
+  --radius-card-lg: var(--br-card-large);
+  --radius-card: var(--br-card);
+  --radius-card-sm: var(--br-card-small);
+
+  /* Primary palette */
+  --color-primary-1: var(--primary-1);
+  --color-primary-2: var(--primary-2);
+  --color-primary-3: var(--primary-3);
+  --color-primary-4: var(--primary-4);
+  --color-primary-5: var(--primary-5);
+  --color-primary-6: var(--primary-6);
+  --color-primary-black: var(--primary-black);
+  --color-primary-white: var(--primary-white);
+
+  /* Grey palette */
+  --color-grey-1: var(--grey-1);
+  --color-grey-2: var(--grey-2);
+  --color-grey-3: var(--grey-3);
+  --color-grey-4: var(--grey-4);
+  --color-grey-5: var(--grey-5);
+
+  /* Background */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+
+  /* Border */
+  --color-border: var(--border);
+  --color-border-active: var(--border-active);
+  --color-border-footer: var(--border-footer);
+  --color-border-error: var(--border-error);
+
+  /* Semantic text colors */
+  --color-headline: var(--headline);
+  --color-disabled: var(--disabled);
+
+  /* Accent */
+  --color-accent-red: var(--accent-red);
+  --color-accent-green: var(--accent-green);
+
+  /* Font weights */
+  --font-weight-regular: var(--fw-regular);
+  --font-weight-medium: var(--fw-medium);
+  --font-weight-bold: var(--fw-bold);
+
+  /* Responsive font sizes */
+  --text-display: var(--fs-display);
+  --text-heading-1: var(--fs-heading-1);
+  --text-heading-2: var(--fs-heading-2);
+  --text-heading-3: var(--fs-heading-3);
+  --text-heading-4: var(--fs-heading-4);
+  --text-heading-5: var(--fs-heading-5);
+  --text-paragraph: var(--fs-paragraph);
+  --text-captions: var(--fs-captions);
+  --text-link: var(--fs-link);
+  --text-button: var(--fs-button);
+
+  /* Responsive line heights */
+  --leading-display: var(--lh-display);
+  --leading-heading-1: var(--lh-heading-1);
+  --leading-heading-2: var(--lh-heading-2);
+  --leading-heading-3: var(--lh-heading-3);
+  --leading-heading-4: var(--lh-heading-4);
+  --leading-heading-5: var(--lh-heading-5);
+  --leading-paragraph: var(--lh-paragraph);
+  --leading-captions: var(--lh-captions);
+  --leading-link: var(--lh-link);
+
+  /* Responsive spacing */
+  --spacing-section-gap: var(--sp-section-gap);
+  --spacing-content-gap: var(--sp-content-gap);
+  --spacing-card-gap: var(--sp-card-gap);
+  --spacing-element-gap: var(--sp-element-gap);
+  --spacing-small-gap: var(--sp-small-gap);
+  --spacing-card-padding: var(--sp-card-padding);
+  --spacing-page-padding: var(--sp-page-padding);
+}
+
+* {
+  word-break: keep-all;
+}
+
+:root {
+  --radius: 0.625rem;
+
+  /* Primary palette */
+  --primary-1: #433DC2;
+  --primary-2: #6B67D4;
+  --primary-3: #9390E2;
+  --primary-4: #A29FEC;
+  --primary-5: #E0DFFA;
+  --primary-6: #CCC9FC;
+  --primary-black: #222427;
+  --primary-white: #FCFCFF;
+
+  /* Grey palette */
+  --grey-1: #222427;
+  --grey-2: #555555;
+  --grey-3: #C0C0C0;
+  --grey-4: #E9E9E9;
+  --grey-5: #F8F8F8;
+
+  /* Background */
+  --background: #FFFFFF;
+  --surface: #FCFCFF;
+  --foreground: #222427;
+
+  /* Border */
+  --border: #E2E2E2;
+  --border-active: #555555;
+  --border-footer: #101828;
+  --border-error: #EA3942;
+
+  /* Semantic text colors */
+  --headline: #433DC2;
+  --disabled: #C0C0C0;
+
+  /* Accent */
+  --accent-red: #EA3942;
+  --accent-green: #2CC16D;
+
+  /* Font weights */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-bold: 700;
+
+  /* Font sizes — Mobile (default) */
+  --fs-display: 42px;
+  --fs-heading-1: 40px;
+  --fs-heading-2: 24px;
+  --fs-heading-3: 18px;
+  --fs-heading-4: 14px;
+  --fs-heading-5: 14px;
+  --fs-paragraph: 12px;
+  --fs-captions: 10px;
+  --fs-link: 10px;
+  --fs-button: 12px;
+
+  /* Line heights — Mobile (default) */
+  --lh-display: 50px;
+  --lh-heading-1: 48px;
+  --lh-heading-2: 29px;
+  --lh-heading-3: 22px;
+  --lh-heading-4: 18px;
+  --lh-heading-5: 18px;
+  --lh-paragraph: 16px;
+  --lh-captions: 12px;
+  --lh-link: 12px;
+
+  /* Border radius — design tokens */
+  --br-pill: 1000px;
+  --br-nav: 40px;
+  --br-card-large: 16px;
+  --br-card: 12px;
+  --br-card-small: 10px;
+
+  /* Spacing — Mobile (default) */
+  --sp-section-gap: 50px;
+  --sp-content-gap: 34px;
+  --sp-card-gap: 32px;
+  --sp-element-gap: 24px;
+  --sp-small-gap: 12px;
+  --sp-card-padding: 24px;
+  --sp-page-padding: 16px;
+}
+
+/* Tablet */
+@media (min-width: 768px) {
+  :root {
+    --fs-display: 80px;
+    --fs-heading-1: 48px;
+    --fs-heading-2: 48px;
+    --fs-heading-3: 24px;
+    --fs-heading-4: 18px;
+    --fs-heading-5: 18px;
+    --fs-paragraph: 14px;
+    --fs-captions: 12px;
+    --fs-link: 12px;
+    --fs-button: 14px;
+
+    --lh-display: 96px;
+    --lh-heading-1: 58px;
+    --lh-heading-2: 58px;
+    --lh-heading-3: 29px;
+    --lh-heading-4: 23px;
+    --lh-heading-5: 23px;
+    --lh-paragraph: 18px;
+    --lh-captions: 14px;
+    --lh-link: 14px;
+
+    --sp-section-gap: 50px;
+    --sp-content-gap: 64px;
+    --sp-small-gap: 16px;
+    --sp-card-padding: 32px;
+    --sp-page-padding: 40px;
+  }
+}
+
+/* Desktop */
+@media (min-width: 1280px) {
+  :root {
+    --fs-display: 80px;
+    --fs-heading-1: 60px;
+    --fs-heading-2: 48px;
+    --fs-heading-3: 24px;
+    --fs-heading-4: 18px;
+    --fs-heading-5: 18px;
+    --fs-paragraph: 14px;
+    --fs-captions: 12px;
+    --fs-link: 12px;
+    --fs-button: 14px;
+
+    --lh-display: 96px;
+    --lh-heading-1: 72px;
+    --lh-heading-2: 58px;
+    --lh-heading-3: 29px;
+    --lh-heading-4: 23px;
+    --lh-heading-5: 23px;
+    --lh-paragraph: 18px;
+    --lh-captions: 14px;
+    --lh-link: 14px;
+
+    --sp-section-gap: 100px;
+    --sp-content-gap: 64px;
+    --sp-small-gap: 16px;
+    --sp-card-padding: 32px;
+    --sp-page-padding: 40px;
+  }
+}

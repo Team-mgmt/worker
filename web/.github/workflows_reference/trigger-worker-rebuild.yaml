@@ -1,0 +1,44 @@
+name: Trigger Worker Rebuild on Schema Change
+
+# qmr-worker bakes the Prisma schema into its build (it checks out qmr-web at
+# build time, runs `prisma migrate deploy`, then generates Python schema types
+# against the migrated database). When the schema changes here, the worker
+# image goes stale unless we rebuild it. This workflow fires the corresponding
+# build-${branch}{,-gpu}.yaml workflows in qmr-worker via workflow_dispatch.
+#
+# Required setup in qmr-web repo:
+#   - Variable QMR_WORKER_REPOSITORY: e.g. hi4labs/qmr-worker
+#   - Secret   QMR_WORKER_DISPATCH_TOKEN: PAT or GitHub App token with
+#                                         `actions: write` on qmr-worker.
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - "packages/database/prisma/**"
+      - ".github/workflows/trigger-worker-rebuild.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch qmr-worker build workflows
+        env:
+          GH_TOKEN: ${{ secrets.QMR_WORKER_DISPATCH_TOKEN }}
+          REPO: ${{ vars.QMR_WORKER_REPOSITORY }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for workflow in "build-${BRANCH}.yaml" "build-${BRANCH}-gpu.yaml"; do
+            echo "Dispatching ${workflow} on ${REPO}@${BRANCH} (qmr-web ${SHA})"
+            gh workflow run "${workflow}" \
+              --repo "${REPO}" \
+              --ref "${BRANCH}"
+          done

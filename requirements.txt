@@ -14,14 +14,9 @@ psycopg[binary]>=3.3.2
 aioboto3>=15.5.0
 aiofiles>=25.1.0
 pyjwt[crypto]>=2.10.1
--e vendor/romav2
-cairosvg>=2.9.0
 opentelemetry-api>=1.41.1
 opentelemetry-sdk>=1.41.1
 opentelemetry-exporter-otlp-proto-http>=1.41.1
-scikit-learn>=1.8.0
-matplotlib>=3.10.9
-seaborn>=0.13.2
 rapidfuzz>=3.14.5
 python-multipart>=0.0.28
 

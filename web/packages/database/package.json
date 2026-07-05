@@ -1,0 +1,56 @@
+{
+  "name": "@shelfalign/database",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/*.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:sql": "tsc -p tsconfig.sql.json",
+    "dev": "tsc --watch",
+    "deploy": "prisma migrate deploy",
+    "generate": "prisma generate",
+    "generate:sql": "echo 'Skipped TypedSQL generation'",
+    "status": "prisma migrate status",
+    "migrate": "prisma migrate dev",
+    "resolve": "prisma migrate resolve",
+    "seed": "prisma db seed",
+    "studio": "prisma studio",
+    "reset": "prisma migrate reset",
+    "sync:nowon": "tsx prisma/sync-nowon-catalog.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "catalog:prisma",
+    "@prisma/client": "catalog:prisma",
+    "@prisma/client-runtime-utils": "catalog:prisma",
+    "pg": "^8.20.0",
+    "prisma": "catalog:prisma"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.3",
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.21.0",
+    "typescript": "catalog:typescript"
+  }
+}

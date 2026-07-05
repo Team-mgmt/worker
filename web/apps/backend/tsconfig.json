@@ -1,0 +1,66 @@
+{
+  // Visit https://aka.ms/tsconfig to read more about this file
+  "compilerOptions": {
+    // File Layout
+    "outDir": "./dist",
+
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    // Environment Settings (https://aka.ms/tsconfig/module)
+    "module": "commonjs",
+    "moduleResolution": "bundler",
+    "customConditions": ["node"],
+
+    "target": "ES2021",
+    "types": ["node", "jest"],
+
+    // Other Outputs
+    "sourceMap": true,
+
+    "declaration": false,
+    "declarationMap": false,
+    "removeComments": true,
+
+    // Stricter Typechecking Options
+    "noImplicitAny": true,
+
+    "strictNullChecks": true,
+    "strictBindCallApply": true,
+    "useUnknownInCatchVariables": true,
+    "noUncheckedIndexedAccess": true,
+
+    // Style Options
+    "noImplicitReturns": true,
+
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
+    // Recommended Options
+    "strict": true,
+
+    "incremental": true,
+    "jsx": "react-jsx",
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+
+    // Extra Options
+    "allowSyntheticDefaultImports": true,
+
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "inlineSources": true,
+
+    // Set `sourceRoot` to  "/" to strip the build path prefix
+    // from generated source code references.
+    // This improves issue grouping in Sentry.
+    "sourceRoot": "/"
+  }
+}

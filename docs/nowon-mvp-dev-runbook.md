@@ -72,7 +72,7 @@ POST /inference/analyze_vlm
    - `LibraryHolding`
 6. 백오피스로 검출 목록과 후보 목록을 반환합니다.
 
-현재 MVP에서는 VLM 분석 세션을 DB에 저장하지 않고 화면 응답으로만 반환합니다. 기존 worker의 `scan_sessions/detections` 테이블은 QMR 계열 구조가 남아 있어서, 추후 Prisma의 ShelfAlign 전용 세션/검출 테이블로 정리한 뒤 저장 흐름을 붙이는 것이 맞습니다.
+현재 MVP에서는 VLM 분석 결과를 화면 응답으로 반환합니다. 운영 저장은 Prisma의 `ShelfScanSession`/`ShelfDetection` 모델 기준으로 연결합니다.
 
 ## 매칭 판정 기준
 

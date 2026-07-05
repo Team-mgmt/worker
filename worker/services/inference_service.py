@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import os
 from typing import List
 
 from pydantic import TypeAdapter
@@ -26,9 +28,25 @@ async def process_scan_session_request(request: ScanSessionRequest, db: AsyncSes
 
     detection_results: List[DetectionResult] = []
     source_items: dict[int, OCRResultItem] = {}
+    match_timeout_seconds = float(os.getenv("MATCH_TIMEOUT_SECONDS", "3"))
 
     for ocr in request.ocr_results:
-        candidates = await find_matches_for_ocr(db, request.library_code, ocr)
+        try:
+            candidates = await asyncio.wait_for(
+                find_matches_for_ocr(db, request.library_code, ocr),
+                timeout=match_timeout_seconds,
+            )
+        except TimeoutError:
+            print(
+                f"[matching] timed out order={ocr.detected_order} after {match_timeout_seconds:.1f}s",
+                flush=True,
+            )
+            await db.rollback()
+            candidates = []
+        except Exception as exc:
+            print(f"[matching] failed order={ocr.detected_order}: {exc}", flush=True)
+            await db.rollback()
+            candidates = []
         source_items[ocr.detected_order] = ocr
 
         top1_score = candidates[0].score if candidates else None

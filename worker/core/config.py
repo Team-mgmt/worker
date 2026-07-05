@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     VLM_API_KEY: str = ""
     VLM_API_BASE_URL: str = "https://api.openai.com/v1"
     VLM_MODEL: str = "gpt-4o-mini"
+    VLM_IMAGE_MAX_EDGE: int = 2048
+    VLM_IMAGE_JPEG_QUALITY: int = 80
+    VLM_IMAGE_DETAIL: str = "high"
+    VLM_MAX_TOKENS: int = 1500
+    VLM_REQUEST_TIMEOUT_SECONDS: int = 45
     
     @property
     def async_database_url(self) -> str:

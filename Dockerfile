@@ -1,5 +1,3 @@
-FROM ghcr.io/astral-sh/uv:latest AS uv
-
 FROM python:3.12-slim AS base
 
 WORKDIR /app
@@ -19,19 +17,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   build-essential cmake python3-dev && \
   apt-get clean
 
-COPY ./scripts/update-hashes.sh update-hashes.sh
-COPY --from=uv /uv /uvx /bin/
-COPY ./pyproject.toml ./uv.lock /app/
-COPY ./vendor/romav2 /app/vendor/romav2
+COPY ./requirements.txt /app/requirements.txt
 
-# RoMaV2 is a required dependency, but it is built as a local wheel because the
-# project source uses an editable local path during development.
 RUN mkdir /app/wheels && \
-  uv sync --locked --no-dev --no-editable && \
-  pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels ./vendor/romav2 && \
-  uv export --no-emit-project --no-dev --no-editable --no-emit-package romav2 > /app/requirements.txt && \
-  pip wheel --no-cache-dir --wheel-dir /app/wheels -r /app/requirements.txt && \
-  bash update-hashes.sh "/app/wheels" "/app/requirements.txt"
+  pip wheel --no-cache-dir --wheel-dir /app/wheels -r /app/requirements.txt
 
 FROM base AS runner
 
@@ -64,7 +53,6 @@ USER runner
 COPY --chown=runner:runner --from=builder /app/wheels /app/wheels
 COPY --chown=runner:runner --from=builder /app/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --no-index --break-system-packages --find-links=/app/wheels -r /app/requirements.txt && \
-  pip install --no-cache-dir --no-index --no-deps --break-system-packages --find-links=/app/wheels romav2 && \
   rm -rf /app/wheels /app/requirements.txt
 
 COPY --chown=runner:runner ./scripts/docker-entrypoint.sh /docker-entrypoint.sh

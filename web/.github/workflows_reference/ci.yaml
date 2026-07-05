@@ -1,0 +1,296 @@
+name: CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "tests/**"
+      - ".github/workflows/ci.yaml"
+      - ".github/workflows/scripts/**"
+      - ".node-version"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ci_matrix: ${{ steps.changes.outputs.ci_matrix }}
+      coverage_matrix: ${{ steps.changes.outputs.coverage_matrix }}
+      has_checks: ${{ steps.changes.outputs.has_checks }}
+      has_coverage: ${{ steps.changes.outputs.has_coverage }}
+      has_lint: ${{ steps.changes.outputs.has_lint }}
+      lint_matrix: ${{ steps.changes.outputs.lint_matrix }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect Changed Files
+        run: |
+          git diff --name-only \
+            "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" \
+            > changed-files.txt
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Detect Changed Scopes
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: node .github/workflows/scripts/select-quality-scopes.mjs --changed-files
+          changed-files.txt
+
+  checks:
+    name: CI (${{ matrix.scope }})
+    needs: changes
+    if: ${{ needs.changes.outputs.has_checks == 'true' }}
+    runs-on: namespace-profile-ubuntu-latest-amd64-medium
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.changes.outputs.ci_matrix) }}
+
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_HOST: localhost
+      DATABASE_PORT: "5432"
+      DATABASE_USER: postgres
+      DATABASE_PASS: postgres
+      DATABASE_NAME: postgres
+
+    steps:
+      - name: Checkout
+        uses: namespacelabs/nscloud-checkout-action@938f5d2d403d6224d9a0c0dc559b1dae09c2ede4 # v8.1.1
+
+      - name: Clean Checkout
+        run: git clean -ffdx
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Lockfile
+        run: |
+          if grep -nE '^(---|\.\.\.)$' pnpm-lock.yaml pnpm-workspace.yaml; then
+            echo "::error::Lockfile YAML contains document separators."
+            exit 1
+          fi
+          if ! git diff --quiet -- pnpm-lock.yaml; then
+            git status --short -- pnpm-lock.yaml
+            echo "::error::pnpm-lock.yaml changed during dependency setup."
+            exit 1
+          fi
+
+      - name: Cache Prisma Client
+        id: prisma-cache
+        if: ${{ matrix.needsSql }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: packages/database/src/generated
+          key: prisma-generated-${{ runner.os }}-${{ matrix.scope }}-${{
+            hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml',
+            'packages/database/prisma/schema.prisma',
+            'packages/database/prisma/sql/**', 'packages/database/package.json')
+            }}
+
+      - name: Deploy Database Schema
+        if: ${{ matrix.needsSql }}
+        run: pnpm --filter @qmr/database run deploy
+
+      - name: Generate Prisma Client with Typed SQL
+        if: ${{ matrix.needsSql && steps.prisma-cache.outputs.cache-hit != 'true' }}
+        run: pnpm --filter @qmr/database run generate:sql
+
+      - name: Check Types
+        if: ${{ matrix.checkTypes }}
+        run: pnpm exec turbo run check-types --filter="${{ matrix.package }}"
+
+      - name: Check Backend Dependency Injection
+        if: ${{ matrix.package == '@qmr/backend' }}
+        run: pnpm --filter @qmr/backend test:di
+
+      - name: Run Test Coverage
+        if: ${{ matrix.coverage }}
+        run: pnpm --filter "${{ matrix.package }}" test:coverage
+
+      - name: Build
+        if: ${{ matrix.build }}
+        run: pnpm exec turbo run build --filter="${{ matrix.package }}"
+
+      - name: Upload Coverage Reports
+        if: ${{ always() && matrix.coverage }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-${{ matrix.scope }}
+          path: ${{ matrix.coveragePath }}/
+          if-no-files-found: ignore
+
+  ci:
+    needs:
+      - changes
+      - checks
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Scoped CI Results
+        run: |
+          check_result() {
+            local job="$1"
+            local result="$2"
+
+            case "$result" in
+              success | skipped)
+                ;;
+              *)
+                echo "::error::${job} finished with result: ${result}"
+                exit 1
+                ;;
+            esac
+          }
+
+          check_result changes "${{ needs.changes.result }}"
+          check_result checks "${{ needs.checks.result }}"
+
+  coverage:
+    name: Coverage Report (${{ matrix.coverageName }})
+    needs:
+      - changes
+      - checks
+    if: ${{ always() && needs.changes.outputs.has_coverage == 'true' &&
+      needs.checks.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.changes.outputs.coverage_matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download Coverage Reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-${{ matrix.scope }}
+          path: coverage-reports/${{ matrix.coveragePath }}
+
+      - name: ${{ matrix.coverageName }} Coverage Report
+        uses: davelosert/vitest-coverage-report-action@3c50566c523e04813df28de8f7c48dd97d663f1c # v2.11.2
+        with:
+          name: ${{ matrix.coverageName }}
+          json-summary-path: coverage-reports/${{ matrix.coveragePath }}/coverage-summary.json
+          json-final-path: coverage-reports/${{ matrix.coveragePath }}/coverage-final.json
+
+  lint-checks:
+    name: Lint (${{ matrix.scope }})
+    needs: changes
+    if: ${{ needs.changes.outputs.has_lint == 'true' }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.changes.outputs.lint_matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Lint
+        run: |
+          if ! pnpm --filter "${{ matrix.package }}" lint; then
+            echo "::error::Lint failed. Fix lint errors before merging."
+            exit 1
+          fi
+
+  lint:
+    needs:
+      - changes
+      - lint-checks
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Scoped Lint Results
+        run: |
+          check_result() {
+            local job="$1"
+            local result="$2"
+
+            case "$result" in
+              success | skipped)
+                ;;
+              *)
+                echo "::error::${job} finished with result: ${result}"
+                exit 1
+                ;;
+            esac
+          }
+
+          check_result changes "${{ needs.changes.result }}"
+          check_result lint-checks "${{ needs.lint-checks.result }}"

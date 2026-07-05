@@ -1,0 +1,25 @@
+[Unit]
+Description=ShelfAlign Worker API
+After=network.target
+
+[Service]
+Type=simple
+User=${SERVICE_USER}
+Group=${SERVICE_GROUP}
+WorkingDirectory=${APP_DIR}
+
+Environment=PATH=${APP_DIR}/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=WORKER_STORAGE_DIR=${WORKER_STORAGE_DIR}
+Environment=SSM_PARAMETER_PATH=${SSM_PARAMETER_PATH}
+
+ExecStart=${APP_DIR}/.venv/bin/python -m fastapi run worker/api/server.py --host 0.0.0.0 --port 8080
+
+Restart=always
+RestartSec=5
+
+StandardOutput=append:/var/log/shelfalign-worker.log
+StandardError=append:/var/log/shelfalign-worker.log
+SyslogIdentifier=${SERVICE_NAME}
+
+[Install]
+WantedBy=multi-user.target

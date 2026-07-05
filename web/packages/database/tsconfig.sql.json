@@ -1,0 +1,5 @@
+{
+	"extends": "./tsconfig.json",
+	"include": ["src/sql.ts"],
+	"exclude": ["prisma.config.ts", "dist/**"]
+}

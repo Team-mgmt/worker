@@ -1,0 +1,60 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_serena_serena",
+      "mcp__plugin_serena_serena__*",
+      "Skill(superpowers:brainstorming)",
+      "Skill(superpowers:brainstorming:*)",
+      "Bash(git worktree:*)",
+      "Bash(pnpm check-types:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm turbo check-types:*)",
+      "Bash(pnpm turbo lint:*)",
+      "Bash(pnpm --filter @shelfalign/backend check-types:*)",
+      "Bash(pnpm --filter @shelfalign/backend lint:*)",
+      "Bash(pnpm --filter @shelfalign/backend build:*)",
+      "Bash(pnpm --filter @shelfalign/backoffice check-types:*)",
+      "Bash(pnpm --filter @shelfalign/backoffice lint:*)",
+      "Bash(pnpm --filter @shelfalign/backoffice build:*)",
+      "Bash(pnpm --filter @shelfalign/student check-types:*)",
+      "Bash(pnpm --filter @shelfalign/student lint:*)",
+      "Bash(pnpm --filter @shelfalign/student build:*)",
+      "Bash(pnpm --filter @shelfalign/teacher check-types:*)",
+      "Bash(pnpm --filter @shelfalign/teacher lint:*)",
+      "Bash(pnpm --filter @shelfalign/teacher build:*)",
+      "Bash(pnpm --filter @shelfalign/frontend check-types:*)",
+      "Bash(pnpm --filter @shelfalign/frontend build:*)",
+      "Bash(pnpm --filter @shelfalign/frontend lint:*)",
+      "Bash(pnpm --filter @shelfalign/scan check-types:*)",
+      "Bash(pnpm --filter @shelfalign/scan build:*)",
+      "Bash(pnpm --filter @shelfalign/scan lint:*)",
+      "Bash(pnpm --filter @shelfalign/client-common check-types:*)",
+      "Bash(pnpm --filter @shelfalign/client-common build:*)",
+      "Bash(pnpm --filter @shelfalign/client-common lint:*)",
+      "Bash(pnpm --filter @shelfalign/schema lint:*)",
+      "Bash(pnpm --filter @shelfalign/schema build:*)",
+      "Bash(pnpm --filter @shelfalign/database generate:*)"
+    ],
+    "deny": [
+      "Read(audit/**)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Read(**/.env)"
+    ],
+    "ask": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script \"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-prisma-db-mutate.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+packages:
+  - apps/*
+  - packages/*
+  - tests/*
+  - .github/workflows/scripts
+
+allowBuilds:
+  "@nestjs/core": true
+  "@prisma/engines": true
+  "@scarf/scarf": true
+  "@sentry-internal/node-cpu-profiler": true
+  "@sentry/cli": true
+  "@swc/core": true
+  argon2: true
+  aws-crt: true
+  canvas: true
+  esbuild: true
+  msw: true
+  prisma: true
+  sharp: true
+  unrs-resolver: true
+  "@prisma/client": true
+  "@tailwindcss/oxide": true
+  protobufjs: false
+
+catalogs:
+  eslint:
+    "@eslint/css": ^1.2.0
+    "@eslint/js": ^9.39.4
+    eslint: ^9.39.4
+    eslint-config-prettier: ^10.1.8
+    eslint-plugin-prettier: ^5.5.5
+    eslint-plugin-react-hooks: ^7.1.1
+    eslint-plugin-react-refresh: ^0.4.26
+    typescript-eslint: ^8.59.2
+  prisma:
+    "@prisma/adapter-pg": ^7.8.0
+    "@prisma/client": ^7.8.0
+    "@prisma/client-runtime-utils": ^7.8.0
+    prisma: ^7.8.0
+  react:
+    "@types/react": ^19.2.14
+    "@types/react-dom": ^19.2.3
+    react: ^19.2.6
+    react-dom: ^19.2.6
+  tiptap:
+    "@tiptap/core": ^3.22.5
+    "@tiptap/extension-image": ^3.22.5
+    "@tiptap/extension-placeholder": ^3.22.5
+    "@tiptap/extension-table": ^3.22.5
+    "@tiptap/pm": ^3.22.5
+    "@tiptap/react": ^3.22.5
+    "@tiptap/starter-kit": ^3.22.5
+  typescript:
+    typescript: 6.0.3
+  zod:
+    zod: ^4.4.3
+
+minimumReleaseAge: 10080
+
+preferWorkspacePackages: true
+
+trustPolicy: no-downgrade
+
+trustPolicyExclude:
+  - ts-api-utils@2.3.0
+
+trustPolicyIgnoreAfter: 20160

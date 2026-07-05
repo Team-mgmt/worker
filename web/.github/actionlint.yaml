@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    - namespace-profile-ubuntu-latest-amd64-small
+    - namespace-profile-ubuntu-latest-amd64-medium

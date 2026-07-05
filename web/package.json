@@ -1,0 +1,27 @@
+{
+  "name": "shelfalign",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "Proprietary",
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:anyopen": "turbo dev:anyopen",
+    "check-types": "turbo check-types",
+    "lint": "turbo run lint",
+    "build": "turbo check-types build",
+    "generate": "turbo run generate",
+    "test": "turbo test",
+    "test:coverage": "pnpm -r --if-present --workspace-concurrency=1 run test:coverage",
+    "clean": "turbo clean"
+  },
+  "dependencies": {
+    "turbo": "^2.9.10"
+  },
+  "devDependencies": {
+    "swc-loader": "^0.2.7"
+  },
+  "packageManager": "pnpm@11.0.9+sha512.34ce82e6780233cf9cad8685029a8f81d2e06196c5a9bad98879f7424940c6817c4e4524fb7d38b8553ceed48b9758b8ebaf1abd3600c232c4c8cf7366086f38"
+}

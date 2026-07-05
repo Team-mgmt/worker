@@ -19,14 +19,9 @@ dependencies = [
     "aioboto3>=15.5.0",
     "aiofiles>=25.1.0",
     "pyjwt[crypto]>=2.10.1",
-    "romav2",
-    "cairosvg>=2.9.0",
     "opentelemetry-api>=1.41.1",
     "opentelemetry-sdk>=1.41.1",
     "opentelemetry-exporter-otlp-proto-http>=1.41.1",
-    "scikit-learn>=1.8.0",
-    "matplotlib>=3.10.9",
-    "seaborn>=0.13.2",
     "rapidfuzz>=3.14.5",
     "python-multipart>=0.0.28",
 ]
@@ -57,9 +52,6 @@ test = [
     "respx>=0.22.0",
 ]
 
-[tool.uv.sources]
-romav2 = { path = "vendor/romav2", editable = true }
-
 [tool.uv]
 override-dependencies = [
     "dataclasses; python_version < '3.7'",
@@ -73,7 +65,7 @@ mypy_path = "stubs"
 check_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = ["romav2", "romav2.*", "torch", "torch.*", "torchvision", "torchvision.*", "cairosvg", "cairosvg.*"]
+module = ["torch", "torch.*", "torchvision", "torchvision.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

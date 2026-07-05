@@ -1,0 +1,174 @@
+name: E2E Tests
+
+on:
+  # push:
+  #   branches: [develop]
+  #   paths:
+  #     - "apps/backend/**"
+  #     - "packages/**"
+  #     - "tests/e2e/**"
+  #     - ".github/workflows/e2e.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  e2e:
+    runs-on: namespace-profile-ubuntu-latest-amd64-small
+    environment: test
+
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: public.ecr.aws/docker/library/redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout
+        uses: namespacelabs/nscloud-checkout-action@938f5d2d403d6224d9a0c0dc559b1dae09c2ede4 # v8.1.1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_NAME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Install Dependencies
+        run: corepack enable && pnpm install
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Run Prisma Migrations
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: "5432"
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+        run: pnpm --filter @qmr/database run deploy
+
+      - name: Cache Prisma Client
+        id: prisma-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: packages/database/src/generated
+          key: prisma-generated-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'packages/database/prisma/schema.prisma', 'packages/database/prisma/sql/**', 'packages/database/package.json') }}
+
+      - name: Generate Prisma Client with Typed SQL
+        if: steps.prisma-cache.outputs.cache-hit != 'true'
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: "5432"
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_NAME: postgres
+        run: pnpm --filter @qmr/database run generate:sql
+
+      - name: Download Latest Worker Artifact
+        id: worker-artifact
+        env:
+          WORKER_CODEDEPLOY_S3_LOCATION: ${{ vars.WORKER_CODEDEPLOY_S3_LOCATION }}
+        run: .github/workflows/scripts/download-latest-worker-artifact.sh
+
+      - name: Install Worker Dependencies
+        run: |
+          cd "${{ steps.worker-artifact.outputs.worker_dir }}"
+          uv sync --locked --no-dev --no-install-project
+
+      - name: Start Worker
+        env:
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+          API_BASE_URL: http://localhost:4000
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+          DATABASE_LOCAL: "true"
+          PYTHONUNBUFFERED: "1"
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e-logs"
+          cd "${{ steps.worker-artifact.outputs.worker_dir }}"
+          uv run --no-sync -m worker.main > "$RUNNER_TEMP/e2e-logs/worker.stdout.log" 2> "$RUNNER_TEMP/e2e-logs/worker.stderr.log" &
+          echo "$!" > "$RUNNER_TEMP/e2e-logs/worker.pid"
+
+      - name: Build & Start Backend
+        env:
+          NODE_ENV: test
+          PORT: "4000"
+          DATABASE_HOST: localhost
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+          DATABASE_PORT: "5432"
+          DATABASE_NAME: postgres
+          DATABASE_LOCAL: "true"
+          CACHE_HOST: localhost
+          CACHE_PORT: "6379"
+          CACHE_USERNAME: ""
+          CACHE_PASSWORD: e2e-dummy-password
+          CACHE_INSECURE: "true"
+          CACHE_SINGLE_NODE: "true"
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          CLOUDFRONT_URL: ${{ vars.CLOUDFRONT_URL }}
+          CLOUDFRONT_ID: ${{ vars.CLOUDFRONT_ID }}
+          AUTH_KEY_SECRET_ID: e2e-test-key
+          AUTH_REFRESH_TOKEN_COOKIE_NAME: qmr_refresh_token
+          TURNSTILE_SECRET_KEY: e2e-dummy-key
+          SCAN_URL_BASE: http://localhost:3000/scan
+        run: .github/workflows/scripts/build-and-start-e2e-backend.sh
+
+      - name: Wait for Backend
+        run: .github/workflows/scripts/wait-for-backend.sh
+
+      - name: Wait for Worker Registration
+        run: .github/workflows/scripts/wait-for-worker-registration.sh
+
+      - name: Install poppler-utils
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Run E2E Tests
+        env:
+          API_BASE_URL: http://localhost:4000
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          SCAN_URL_BASE: http://localhost:3000/scan
+        run: pnpm --filter @qmr/e2e test
+
+      - name: Collect Service Logs
+        if: always()
+        run: .github/workflows/scripts/collect-e2e-service-logs.sh
+
+      - name: Upload Service Logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-service-logs
+          path: ${{ runner.temp }}/e2e-logs/
+          if-no-files-found: warn
+
+      - name: Upload Test Report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-report
+          path: tests/e2e/playwright-report/

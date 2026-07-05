@@ -1,15 +1,21 @@
-import cv2
-import numpy as np
 import logging
 import os
-from typing import List, Dict, Any, Tuple
+from typing import Any
 
-# Fix for Windows username encoding issue in C++ backend
-os.environ["USERPROFILE"] = r"C:\dev\paddle_models"
-# Disable MKL-DNN to prevent fused_conv2d error on Windows Paddle 2.6+
+# Keep Paddle/Matplotlib caches in the project workspace. This avoids Windows
+# username encoding and home-directory permission issues during local demos.
+PROJECT_CACHE_DIR = os.path.abspath(os.path.join(os.getcwd(), ".paddle_cache"))
+os.environ["USERPROFILE"] = PROJECT_CACHE_DIR
+os.environ["PADDLE_HOME"] = os.path.join(PROJECT_CACHE_DIR, "paddle")
+os.environ["MPLCONFIGDIR"] = os.path.join(PROJECT_CACHE_DIR, "matplotlib")
 os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["FLAGS_use_onednn"] = "0"
 os.environ["FLAGS_use_mkldnn_bfloat16"] = "0"
+os.environ["FLAGS_enable_pir_api"] = "0"
 os.environ["OMP_NUM_THREADS"] = "1"
+
+import cv2
+import numpy as np
 
 try:
     from paddleocr import PaddleOCR
@@ -18,65 +24,101 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 class VisionService:
     def __init__(self):
         if PaddleOCR is None:
             logger.warning("PaddleOCR is not installed. Vision Service will not work properly.")
             self.ocr = None
         else:
-            # lang='korean' includes korean and english/numbers
-            self.ocr = PaddleOCR(use_angle_cls=True, lang='korean', show_log=False, use_mkldnn=False)
-            
-    def manual_crop_and_ocr(self, image_path: str, crop_rect: Tuple[int, int, int, int] = None, preprocess: bool = False) -> List[Dict[str, Any]]:
-        """
-        주어진 이미지에서 특정 영역(crop_rect=(x, y, w, h))을 수동으로 잘라내어 OCR을 수행합니다.
-        preprocess가 True이면 OpenCV Baseline을 적용해 라벨을 추출하고 대비를 높입니다.
-        """
+            os.makedirs(PROJECT_CACHE_DIR, exist_ok=True)
+            self.ocr = PaddleOCR(
+                lang="korean",
+                device="cpu",
+                enable_mkldnn=False,
+                cpu_threads=1,
+                use_textline_orientation=True,
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+            )
+
+    def manual_crop_and_ocr(
+        self,
+        image_path: str,
+        crop_rect: tuple[int, int, int, int] | None = None,
+        preprocess: bool = False,
+    ) -> list[dict[str, Any]]:
         if self.ocr is None:
             raise RuntimeError("PaddleOCR engine not initialized.")
-            
-        # Use cv2.imdecode instead of cv2.imread to handle Korean path correctly
+
         img_array = np.fromfile(image_path, np.uint8)
         if img_array.size == 0:
             raise FileNotFoundError(f"Image not found: {image_path}")
         img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-            
+
         if crop_rect:
             x, y, w, h = crop_rect
-            cropped = img[y:y+h, x:x+w]
+            cropped = img[y : y + h, x : x + w]
         else:
             x, y = 0, 0
             cropped = img
-            
+
         if preprocess:
             from worker.services.opencv_baseline import extract_label_from_spine
+
             cropped = extract_label_from_spine(cropped)
-            # The resulting image is already cropped further inside the spine bounding box.
-            # However, for simplicity of bounding box mapping, we just pass the original box mapping.
-        
-        # Run OCR
-        result = self.ocr.ocr(cropped, cls=True)
-        print("Raw OCR result:", result)
-        
-        extracted = []
-        if result and result[0]:
-            for line in result[0]:
-                bbox = line[0] # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-                text = line[1][0]
+
+        result = self.ocr.ocr(cropped)
+        return self._parse_ocr_result(result, x, y)
+
+    def _parse_ocr_result(self, result: Any, offset_x: int, offset_y: int) -> list[dict[str, Any]]:
+        extracted: list[dict[str, Any]] = []
+        if not result:
+            return extracted
+
+        first_result = result[0] if isinstance(result, list) else result
+
+        if isinstance(first_result, dict) or hasattr(first_result, "get"):
+            texts = first_result.get("rec_texts") or []
+            scores = first_result.get("rec_scores") or []
+            boxes = first_result.get("rec_polys") or first_result.get("dt_polys") or []
+
+            for index, text in enumerate(texts):
+                text = str(text).strip()
+                if not text:
+                    continue
+
+                bbox = boxes[index] if index < len(boxes) else []
+                original_bbox = [
+                    [float(pt[0]) + offset_x, float(pt[1]) + offset_y]
+                    for pt in bbox
+                ]
+                extracted.append(
+                    {
+                        "text": text,
+                        "confidence": float(scores[index]) if index < len(scores) else None,
+                        "bbox": original_bbox,
+                    }
+                )
+            return extracted
+
+        if isinstance(first_result, list):
+            for line in first_result:
+                bbox = line[0]
+                text = str(line[1][0]).strip()
+                if not text:
+                    continue
                 confidence = line[1][1]
-                
-                # 원본 이미지 기준의 좌표로 보정
-                original_bbox = []
-                for pt in bbox:
-                    original_bbox.append([pt[0] + x, pt[1] + y])
-                    
-                extracted.append({
-                    "text": text,
-                    "confidence": confidence,
-                    "bbox": original_bbox
-                })
-                
+                original_bbox = [[pt[0] + offset_x, pt[1] + offset_y] for pt in bbox]
+                extracted.append(
+                    {
+                        "text": text,
+                        "confidence": confidence,
+                        "bbox": original_bbox,
+                    }
+                )
+
         return extracted
 
-# Singleton instance
+
 vision_service = VisionService()
