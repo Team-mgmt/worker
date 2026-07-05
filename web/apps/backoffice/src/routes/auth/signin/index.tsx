@@ -42,10 +42,19 @@ function RouteComponent() {
 
       const result = (await response.json()) as {
         result: true;
-        data: { accessToken: string };
+        data: {
+          accessToken: string;
+          organizations: { organizationId: string; type: string }[];
+        };
       };
 
       localStorage.setItem("accessToken", result.data.accessToken);
+      const adminOrganization =
+        result.data.organizations.find((org) => org.type === "ADMIN") ??
+        result.data.organizations[0];
+      if (adminOrganization) {
+        localStorage.setItem("organization", adminOrganization.organizationId);
+      }
       navigate({ to: "/" });
     } catch {
       toast.error("Login failed.");
