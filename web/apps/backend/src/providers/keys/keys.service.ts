@@ -52,10 +52,17 @@ export class KeyService {
     });
   }
 
-  private async loadLocalKeys(keyFile: string) {
-    if (!["test", "local"].includes(this.env.NODE_ENV)) {
+  private isLocalKeyMode(keyId: string) {
+    return (
+      ["test", "local"].includes(this.env.NODE_ENV) ||
+      keyId === "dummy-auth-key-secret-id"
+    );
+  }
+
+  private async loadLocalKeys(keyFile: string, keyId: string) {
+    if (!this.isLocalKeyMode(keyId)) {
       throw new Error(
-        "Local keys can only be loaded in test or local environment",
+        "Local keys can only be loaded in test/local environment or with dummy auth key",
       );
     }
 
@@ -80,9 +87,9 @@ export class KeyService {
   }
 
   private async generateLocalKeys(keyId: string) {
-    if (!["test", "local"].includes(this.env.NODE_ENV)) {
+    if (!this.isLocalKeyMode(keyId)) {
       throw new Error(
-        "Local keys can only be loaded in test or local environment",
+        "Local keys can only be loaded in test/local environment or with dummy auth key",
       );
     }
 
@@ -92,7 +99,7 @@ export class KeyService {
     const kid = "local-key";
 
     try {
-      const keyPair = await this.loadLocalKeys(keyFile);
+      const keyPair = await this.loadLocalKeys(keyFile, keyId);
       this.keys[keyId] = {
         latestKeyId: kid,
         keys: { [kid]: keyPair },
@@ -103,7 +110,7 @@ export class KeyService {
       // Key file doesn't exist or is invalid, generate new keys
     }
 
-    this.logger.warn("Generating local keys for test/local mode");
+    this.logger.warn("Generating local keys for test/local/dummy auth mode");
 
     const keyPair = await crypto.subtle.generateKey(
       { name: "ECDSA", namedCurve: "P-521" },
@@ -133,7 +140,7 @@ export class KeyService {
   }
 
   async fetchKeys(keyId: string) {
-    if (this.env.NODE_ENV === "test" || this.env.NODE_ENV === "local") {
+    if (this.isLocalKeyMode(keyId)) {
       await this.generateLocalKeys(keyId);
       return;
     }

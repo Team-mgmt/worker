@@ -65,6 +65,13 @@ export function TurnstileGuard(options?: TurnstileGuardOptions) {
         return true;
       }
 
+      if (this.env.TURNSTILE_SECRET_KEY === "dummy-turnstile-secret") {
+        this.logger.warn(
+          `Skipping Turnstile verification: dummy secret configured (route=${routePath})`,
+        );
+        return true;
+      }
+
       if (options?.skipIfAuthenticated) {
         const authHeader = request.headers["authorization"];
         this.logger.verbose(
