@@ -368,7 +368,7 @@ $RECYCLE.BIN/
 
 worker/generated/models.py
 data/
-models/
+/models/
 build/
 references/
 playground/
