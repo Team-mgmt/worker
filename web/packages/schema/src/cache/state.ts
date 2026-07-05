@@ -1,6 +1,6 @@
 import z from "zod";
 
-import { ServicesSchema } from "@/dtos/base.js";
+import { ServicesSchema } from "@/dtos/base";
 
 export const StateCacheSchema = z.object({
   codeVerifier: z.string(),

@@ -1,6 +1,6 @@
 import z from "zod";
 
-import { ProviderSchema } from "@/models/provider.js";
+import { ProviderSchema } from "@/models/provider";
 
 import { BaseSuccessSchema } from "../base.js";
 

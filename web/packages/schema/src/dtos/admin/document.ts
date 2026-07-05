@@ -1,6 +1,6 @@
 import z from "zod";
 
-import { TiptapContentSchema } from "@/models/tiptap-content.js";
+import { TiptapContentSchema } from "@/models/tiptap-content";
 
 import { BaseSuccessSchema } from "../base.js";
 
