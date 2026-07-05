@@ -109,10 +109,16 @@ export class SeedService implements OnModuleInit {
         const status =
           (err as { $metadata?: { httpStatusCode?: number } })?.$metadata
             ?.httpStatusCode ?? 0;
-        if (status !== 412) throw err;
-        const persisted = await this.readBackfillCutoff();
-        if (!persisted) throw err;
-        cutoff = persisted;
+        if (status !== 412) {
+          this.logger.warn(
+            "Could not persist email verification backfill marker to S3. " +
+              "Continuing with an in-memory cutoff for this boot.",
+          );
+        } else {
+          const persisted = await this.readBackfillCutoff();
+          if (!persisted) throw err;
+          cutoff = persisted;
+        }
       }
     }
 
