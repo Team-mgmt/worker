@@ -1,7 +1,7 @@
 import z from "zod";
 
-import { OrganizationMemberSchema } from "@/models/organization-member";
-import { OrganizationSchema } from "@/models/organization";
+import { OrganizationMemberSchema } from "../models/organization-member";
+import { OrganizationSchema } from "../models/organization";
 
 import { ServicesSchema } from "./base.js";
 

@@ -1,6 +1,6 @@
 import z from "zod";
 
-import { OrganizationSchema } from "@/models/organization";
+import { OrganizationSchema } from "../../models/organization";
 
 import { BaseSuccessSchema } from "../base.js";
 
