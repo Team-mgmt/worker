@@ -92,7 +92,7 @@ export class CoreAuthService {
         kid: latestKey.keyId,
         jti: uuidv7(),
       })
-      .setExpirationTime("5m")
+      .setExpirationTime("3h")
       .sign(latestKey.key.private);
 
     return accessToken;
