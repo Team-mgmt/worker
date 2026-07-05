@@ -82,7 +82,7 @@ export class AuthController {
       httpOnly: true,
       secure: this.env.NODE_ENV !== "local",
       sameSite: "lax",
-      path: "/auth/refresh",
+      path: "/",
       maxAge: 3 * 60 * 60 * 1000, // 3 hours
     });
   }
@@ -249,7 +249,7 @@ export class AuthController {
       httpOnly: true,
       secure: this.env.NODE_ENV !== "local",
       sameSite: "lax",
-      path: "/auth/refresh",
+      path: "/",
     });
 
     return { result: true } satisfies DeleteSessionResponseDto;
