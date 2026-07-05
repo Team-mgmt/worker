@@ -20,22 +20,48 @@ function RouteComponent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 600));
-    if (email === "admin@shelfalign.kr" && password === "1234") {
-      localStorage.setItem("accessToken", "test-token");
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_BASE_URL}/auth/signin`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-turnstile-token": "dummy",
+          },
+          credentials: "include",
+          body: JSON.stringify({ email, password }),
+        },
+      );
+
+      if (!response.ok) {
+        toast.error("Login failed.");
+        return;
+      }
+
+      const result = (await response.json()) as {
+        result: true;
+        data: { accessToken: string };
+      };
+
+      localStorage.setItem("accessToken", result.data.accessToken);
       navigate({ to: "/" });
-    } else {
-      toast.error("이메일 또는 비밀번호가 올바르지 않습니다.");
+    } catch {
+      toast.error("Login failed.");
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
-    <main className="flex items-center justify-center min-h-screen bg-muted px-4 sm:px-6 lg:px-8 py-12">
+    <main className="flex min-h-screen items-center justify-center bg-muted px-4 py-12 sm:px-6 lg:px-8">
       <div className="w-full max-w-md">
         <Card className="rounded-2xl shadow-xl">
           <CardHeader className="text-center">
-            <CardTitle className="text-3xl sm:text-4xl">ShelfAlign 백오피스</CardTitle>
+            <CardTitle className="text-3xl sm:text-4xl">
+              ShelfAlign Backoffice
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -43,20 +69,25 @@ function RouteComponent() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="이메일"
-                className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Email"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 required
               />
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="비밀번호"
-                className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Password"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 required
               />
-              <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
-                {isLoading ? "로그인 중..." : "ShelfAlign Login"}
+              <Button
+                type="submit"
+                className="w-full"
+                size="lg"
+                disabled={isLoading}
+              >
+                {isLoading ? "Signing in..." : "ShelfAlign Login"}
               </Button>
             </form>
           </CardContent>
