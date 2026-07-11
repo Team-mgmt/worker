@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from worker.core.database import get_db
 from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest
 from worker.services.inference_service import process_scan_session_request
+from worker.services.ocr_field_parser import extract_ocr_fields
 
 router = APIRouter(prefix="/inference", tags=["Inference"])
 
@@ -144,11 +145,15 @@ async def analyze_yolo(
             text = ""
             confidence = 0.0
 
+        title, author, call_number = extract_ocr_fields(text)
+
         ocr_results_payload.append(
             OCRResultItem(
                 detected_order=index,
                 raw_text=text,
-                call_number=text,
+                title=title,
+                author=author,
+                call_number=call_number,
                 bbox=[x, y, x + w, y + h],
                 crop_image_path=None,
                 ocr_confidence=confidence,
@@ -257,10 +262,7 @@ async def analyze_vision(
             )
             paddle_text = join_ocr_text(extracted)
             paddle_confidence = average_ocr_confidence(extracted)
-            
-            # Simple heuristic: if it has numbers, it's a call number
-            if has_call_number_evidence(paddle_text):
-                call_number = paddle_text
+            title, author, call_number = extract_ocr_fields(paddle_text)
 
             analyze_log(
                 f"[analyze_vision] OCR spine={order} "
@@ -268,13 +270,15 @@ async def analyze_vision(
             )
         except Exception as exc:
             analyze_log(f"[analyze_vision] OCR failed spine={order}: {exc}")
+            title = None
+            author = None
 
         ocr_results_payload.append(
             OCRResultItem(
                 detected_order=order,
                 raw_text=paddle_text,
-                title="",
-                author="",
+                title=title,
+                author=author,
                 call_number=call_number or None,
                 bbox=bbox_pixels,
                 crop_image_path=None,

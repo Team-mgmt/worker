@@ -28,11 +28,11 @@ def split_call_number(call_number: str) -> Tuple[str, str]:
     if not rest:
         return class_no, ""
 
-    hangul_book_code_match = re.search(r"([가-힣A-Za-z0-9.-]+)", rest)
+    hangul_book_code_match = re.search(r"([가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9.-]+)", rest)
     if hangul_book_code_match:
         return class_no, hangul_book_code_match.group(1)
 
-    book_code_match = re.search(r"([가-힣A-Za-z0-9.-]+)", rest)
+    book_code_match = re.search(r"([가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9.-]+)", rest)
     book_code = book_code_match.group(1) if book_code_match else rest.split()[0]
     return class_no, book_code
 
