@@ -39,9 +39,13 @@ class BookSpineDetector:
 
         bboxes: list[tuple[int, int, int, int]] = []
         if results:
-            for box in results[0].boxes:
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                bboxes.append((int(x1), int(y1), int(x2 - x1), int(y2 - y1)))
+            result = results[0]
+            detections = result.boxes if result.boxes is not None else result.obb
+            if detections is not None:
+                # OBB models expose an axis-aligned xyxy projection as well, which is
+                # sufficient for the downstream rectangular OCR crop.
+                for x1, y1, x2, y2 in detections.xyxy.cpu().numpy():
+                    bboxes.append((int(x1), int(y1), int(x2 - x1), int(y2 - y1)))
 
         bboxes.sort(key=lambda bbox: bbox[0])
         return bboxes
