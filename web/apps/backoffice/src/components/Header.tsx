@@ -1,9 +1,6 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import { ChevronDownIcon } from "lucide-react";
-
-import { queries } from "@/queries";
 
 import {
   DropdownMenu,
@@ -13,8 +10,7 @@ import {
 } from "./ui/dropdown-menu";
 
 export function Header() {
-  const { data: session } = useSuspenseQuery(queries.auth.session);
-  const displayName = session.membership[0]?.name || "관리자";
+  const displayName = "관리자";
 
   return (
     <header className="w-full h-16 flex justify-between items-center overflow-visible pt-4">

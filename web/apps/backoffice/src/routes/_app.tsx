@@ -2,7 +2,6 @@ import { Suspense } from "react";
 
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 
-import { AuthGuard } from "@/components/AuthGuard";
 import { Header } from "@/components/Header";
 
 export const Route = createFileRoute("/_app")({
@@ -11,8 +10,7 @@ export const Route = createFileRoute("/_app")({
 
 function RouteComponent() {
   return (
-    <AuthGuard>
-      <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col">
         <div className="container mx-auto">
           <Header />
         </div>
@@ -23,7 +21,6 @@ function RouteComponent() {
             </div>
           </div>
         </Suspense>
-      </div>
-    </AuthGuard>
+    </div>
   );
 }
