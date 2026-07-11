@@ -190,7 +190,8 @@ async def find_matches_for_ocr_from_prisma_catalog(
 
     try:
         result = await session.execute(stmt, params)
-    except Exception:
+    except Exception as exc:
+        print(f"[matching] catalog query failed: {exc}", flush=True)
         await session.rollback()
         return []
 
