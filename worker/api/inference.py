@@ -297,6 +297,16 @@ async def analyze_vision(
     analyze_log(f"[analyze_vision] matching start items={len(ocr_results_payload)}")
     response = await process_scan_session_request(req, db, persist=False)
     analyze_log(f"[analyze_vision] matching done elapsed={time.perf_counter() - match_started_at:.1f}s")
+
+    decision_counts: dict[str, int] = {}
+    for result in response.results:
+        decision_counts[result.decision] = decision_counts.get(result.decision, 0) + 1
+        analyze_log(
+            f"[analyze_vision] result spine={result.detected_order} "
+            f"decision={result.decision} score={result.match_score or 0.0:.1f} "
+            f"matched={result.matched_book!r} call_number={result.matched_call_number!r}"
+        )
+    analyze_log(f"[analyze_vision] decision summary={decision_counts}")
     return response
 
 
