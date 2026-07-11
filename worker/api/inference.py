@@ -186,6 +186,7 @@ async def analyze_vision(
     db: AsyncSession = Depends(get_db),
     library_code: str = "111058",
     room_name: str = "노원중앙도서관 종합자료실",
+    preprocess: bool = False,
 ):
     filename = file.filename
     if not filename:
@@ -252,7 +253,7 @@ async def analyze_vision(
             extracted = vision_service.manual_crop_and_ocr(
                 str(temp_path),
                 crop_rect,
-                preprocess=True,  # This will auto-crop the bottom label!
+                preprocess=preprocess,
             )
             paddle_text = join_ocr_text(extracted)
             paddle_confidence = average_ocr_confidence(extracted)
