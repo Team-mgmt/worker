@@ -39,6 +39,10 @@ class VisionService:
                     "PADDLE_OCR_DETECTION_MODEL",
                     "PP-OCRv5_mobile_det",
                 ),
+                text_recognition_model_name=os.getenv(
+                    "PADDLE_OCR_RECOGNITION_MODEL",
+                    "korean_PP-OCRv5_mobile_rec",
+                ),
                 enable_mkldnn=False,
                 cpu_threads=1,
                 use_textline_orientation=True,
