@@ -42,6 +42,8 @@ type Data4LibraryItem = {
 type Args = {
   authKey: string;
   libCode: string;
+  libraryName: string;
+  libraryAddress: string | null;
   kdc: string | null;
   shelfLocContains: string | null;
   classNoMin: number | null;
@@ -77,9 +79,17 @@ function parseArgs(): Args {
   const classNoMaxRaw = getArgValue("class-no-max");
   const maxPagesRaw = getArgValue("max-pages");
 
+  const libCode = getArgValue("lib-code") ?? NOWON_JUNGANG_LIBRARY_CODE;
+  const knownLibraryNames: Record<string, string> = {
+    [NOWON_JUNGANG_LIBRARY_CODE]: NOWON_JUNGANG_LIBRARY_NAME,
+    "111189": "도봉아이나라도서관",
+  };
+
   return {
     authKey,
-    libCode: getArgValue("lib-code") ?? NOWON_JUNGANG_LIBRARY_CODE,
+    libCode,
+    libraryName: getArgValue("library-name") ?? knownLibraryNames[libCode] ?? libCode,
+    libraryAddress: getArgValue("library-address") ?? null,
     kdc: getArgValue("kdc") ?? null,
     shelfLocContains: shelfLocContains === "" ? null : shelfLocContains,
     classNoMin: classNoMinRaw ? Number(classNoMinRaw) : null,
@@ -183,7 +193,12 @@ async function fetchItems(args: Args, pageNo: number): Promise<Data4LibraryItem[
     const response = await fetch(url);
     if (response.ok) {
       const data = await response.json();
-      const docs = data?.response?.docs;
+      const apiResponse = data?.response;
+      if (apiResponse?.errCode) {
+        throw new Error(`Data4Library error: ${apiResponse.errCode} ${apiResponse.error ?? ""}`.trim());
+      }
+
+      const docs = apiResponse?.docs;
       if (!Array.isArray(docs)) {
         return [];
       }
@@ -312,10 +327,12 @@ async function main() {
       create: {
         id: randomUUID(),
         code: args.libCode,
-        name: args.libCode === NOWON_JUNGANG_LIBRARY_CODE ? NOWON_JUNGANG_LIBRARY_NAME : args.libCode,
+        name: args.libraryName,
+        address: args.libraryAddress,
       },
       update: {
-        name: args.libCode === NOWON_JUNGANG_LIBRARY_CODE ? NOWON_JUNGANG_LIBRARY_NAME : args.libCode,
+        name: args.libraryName,
+        ...(args.libraryAddress ? { address: args.libraryAddress } : {}),
       },
     });
 

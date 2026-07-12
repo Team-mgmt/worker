@@ -35,6 +35,7 @@
     "seed": "prisma db seed",
     "studio": "prisma studio",
     "reset": "prisma migrate reset",
+    "sync:catalog": "tsx prisma/sync-nowon-catalog.ts",
     "sync:nowon": "tsx prisma/sync-nowon-catalog.ts"
   },
   "prisma": {
