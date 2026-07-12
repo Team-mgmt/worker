@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+from uuid import uuid4
 from pathlib import Path
 
 from PIL import Image
@@ -10,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from worker.core.database import get_db
 from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest
+from worker.services.detection_service import detector_service
 from worker.services.inference_service import process_scan_session_request
 from worker.services.ocr_field_parser import extract_ocr_fields
+from worker.services.scan_artifact_service import scan_artifact_service
 
 router = APIRouter(prefix="/inference", tags=["Inference"])
 
@@ -193,13 +196,16 @@ async def analyze_vision(
     room_name: str = "노원중앙도서관 종합자료실",
     preprocess: bool = False,
 ):
+    request_started_at = time.perf_counter()
+    run_id = str(uuid4())
     filename = file.filename
     if not filename:
         raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
 
-    os.makedirs("outputs/uploads", exist_ok=True)
     safe_filename = Path(filename).name
-    temp_path = Path("outputs/uploads") / safe_filename
+    upload_dir = Path("outputs/uploads") / run_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = upload_dir / safe_filename
     with temp_path.open("wb") as f:
         f.write(await file.read())
 
@@ -210,6 +216,7 @@ async def analyze_vision(
         raise HTTPException(status_code=400, detail=f"Invalid image file: {exc}")
 
     bboxes: list[tuple[int, int, int, int]] = []
+    detection_started_at = time.perf_counter()
     
     # 1. Option A Fallback: Check bboxes.json
     bboxes_json_path = Path("tests/bboxes.json")
@@ -230,7 +237,6 @@ async def analyze_vision(
 
     # 2. YOLO Detection (if no manual bboxes and YOLO is ready)
     if not bboxes:
-        from worker.services.detection_service import detector_service
         if detector_service.is_ready:
             try:
                 bboxes = detector_service.detect_spines(str(temp_path))
@@ -238,13 +244,16 @@ async def analyze_vision(
             except Exception as exc:
                 analyze_log(f"[analyze_vision] YOLO detection failed: {exc}")
         else:
-            analyze_log(f"[analyze_vision] YOLO is not ready and no manual bboxes found. Fallback to 1 whole image bbox.")
+            analyze_log("[analyze_vision] YOLO is not ready and no manual bboxes found. Fallback to 1 whole image bbox.")
             bboxes = [(0, 0, image_width, image_height)]
+
+    detection_elapsed = time.perf_counter() - detection_started_at
 
     # 3. PaddleOCR for each BBox
     from worker.services.vision_service import vision_service
     ocr_results_payload = []
     
+    ocr_started_at = time.perf_counter()
     for order, (crop_x, crop_y, crop_width, crop_height) in enumerate(bboxes, start=1):
         crop_rect = (crop_x, crop_y, crop_width, crop_height)
         bbox_pixels = [float(crop_x), float(crop_y), float(crop_x + crop_width), float(crop_y + crop_height)]
@@ -254,7 +263,7 @@ async def analyze_vision(
         call_number = ""
 
         try:
-            ocr_started_at = time.perf_counter()
+            spine_ocr_started_at = time.perf_counter()
             extracted = vision_service.manual_crop_and_ocr(
                 str(temp_path),
                 crop_rect,
@@ -266,7 +275,7 @@ async def analyze_vision(
 
             analyze_log(
                 f"[analyze_vision] OCR spine={order} "
-                f"text={paddle_text[:80]!r} elapsed={time.perf_counter() - ocr_started_at:.1f}s"
+                f"text={paddle_text[:80]!r} elapsed={time.perf_counter() - spine_ocr_started_at:.1f}s"
             )
         except Exception as exc:
             analyze_log(f"[analyze_vision] OCR failed spine={order}: {exc}")
@@ -286,6 +295,7 @@ async def analyze_vision(
             )
         )
 
+    ocr_elapsed = time.perf_counter() - ocr_started_at
     req = ScanSessionRequest(
         library_code=library_code,
         room_name=room_name,
@@ -297,6 +307,7 @@ async def analyze_vision(
     analyze_log(f"[analyze_vision] matching start items={len(ocr_results_payload)}")
     response = await process_scan_session_request(req, db, persist=False)
     analyze_log(f"[analyze_vision] matching done elapsed={time.perf_counter() - match_started_at:.1f}s")
+    matching_elapsed = time.perf_counter() - match_started_at
 
     decision_counts: dict[str, int] = {}
     for result in response.results:
@@ -307,6 +318,27 @@ async def analyze_vision(
             f"matched={result.matched_book!r} call_number={result.matched_call_number!r}"
         )
     analyze_log(f"[analyze_vision] decision summary={decision_counts}")
+    try:
+        artifact_prefix = await scan_artifact_service.save_scan(
+            run_id=run_id,
+            image_path=temp_path,
+            library_code=library_code,
+            room_name=room_name,
+            response=response,
+            timings={
+                "detection": round(detection_elapsed, 4),
+                "ocr": round(ocr_elapsed, 4),
+                "matching": round(matching_elapsed, 4),
+                "total_before_artifact_upload": round(time.perf_counter() - request_started_at, 4),
+            },
+            model_path=detector_service.model_path if detector_service.is_ready else None,
+        )
+        if artifact_prefix:
+            response.artifact_run_id = run_id
+            response.artifact_prefix = artifact_prefix
+            analyze_log(f"[analyze_vision] artifacts saved prefix={artifact_prefix}")
+    except Exception as exc:
+        analyze_log(f"[analyze_vision] artifact save failed; continuing without S3: {exc}")
     return response
 
 

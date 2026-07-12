@@ -60,3 +60,5 @@ class MatchResponse(BaseModel):
     library_code: str
     estimated_shelf: Optional[EstimatedShelf] = None
     results: List[DetectionResult]
+    artifact_run_id: Optional[str] = None
+    artifact_prefix: Optional[str] = None

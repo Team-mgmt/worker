@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     VLM_IMAGE_DETAIL: str = "high"
     VLM_MAX_TOKENS: int = 1500
     VLM_REQUEST_TIMEOUT_SECONDS: int = 45
+    AWS_REGION: str = "ap-northeast-2"
+    S3_BUCKET_NAME: str = ""
+    SCAN_ARTIFACTS_ENABLED: bool = False
+    SCAN_ARTIFACTS_PREFIX: str = "shelfalign/scans"
+    SCAN_ARTIFACTS_SAVE_CROPS: bool = True
     
     @property
     def async_database_url(self) -> str:
