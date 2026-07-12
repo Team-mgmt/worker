@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as ScanIndexRouteImport } from './routes/scan/index'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AuthSigninIndexRouteImport } from './routes/auth/signin/index'
 import { Route as AppShelfOpsIndexRouteImport } from './routes/_app/shelf-ops/index'
@@ -23,6 +24,11 @@ import { Route as AppOrganizationsOrganizationIdEditRouteImport } from './routes
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScanIndexRoute = ScanIndexRouteImport.update({
+  id: '/scan/',
+  path: '/scan/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -80,6 +86,7 @@ const AppOrganizationsOrganizationIdEditRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/scan/': typeof ScanIndexRoute
   '/documents/': typeof AppDocumentsIndexRoute
   '/organizations/': typeof AppOrganizationsIndexRoute
   '/providers/': typeof AppProvidersIndexRoute
@@ -92,6 +99,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
+  '/scan': typeof ScanIndexRoute
   '/documents': typeof AppDocumentsIndexRoute
   '/organizations': typeof AppOrganizationsIndexRoute
   '/providers': typeof AppProvidersIndexRoute
@@ -106,6 +114,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/_app/': typeof AppIndexRoute
+  '/scan/': typeof ScanIndexRoute
   '/_app/documents/': typeof AppDocumentsIndexRoute
   '/_app/organizations/': typeof AppOrganizationsIndexRoute
   '/_app/providers/': typeof AppProvidersIndexRoute
@@ -120,6 +129,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/scan/'
     | '/documents/'
     | '/organizations/'
     | '/providers/'
@@ -132,6 +142,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/scan'
     | '/documents'
     | '/organizations'
     | '/providers'
@@ -145,6 +156,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/_app/'
+    | '/scan/'
     | '/_app/documents/'
     | '/_app/organizations/'
     | '/_app/providers/'
@@ -158,6 +170,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  ScanIndexRoute: typeof ScanIndexRoute
   AuthSigninIndexRoute: typeof AuthSigninIndexRoute
 }
 
@@ -168,6 +181,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scan/': {
+      id: '/scan/'
+      path: '/scan'
+      fullPath: '/scan/'
+      preLoaderRoute: typeof ScanIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -273,6 +293,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  ScanIndexRoute: ScanIndexRoute,
   AuthSigninIndexRoute: AuthSigninIndexRoute,
 }
 export const routeTree = rootRouteImport
