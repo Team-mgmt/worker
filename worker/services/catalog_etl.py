@@ -26,7 +26,7 @@ def normalize_text(text: str) -> str:
 
 async def process_and_load_items(session: AsyncSession, lib_code: str, items: List[Dict[str, Any]]):
     for item in items:
-        isbn13 = item.get("isbn13", "")
+        isbn13 = item.get("isbn13") or None
         bookname = item.get("bookname", "")
         authors = item.get("authors", "")
         publisher = item.get("publisher", "")
