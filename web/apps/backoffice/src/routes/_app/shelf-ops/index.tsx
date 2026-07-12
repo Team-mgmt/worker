@@ -19,6 +19,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -84,6 +91,21 @@ type WorkerMatchResponse = {
 };
 
 const INITIAL_DETECTIONS: Detection[] = [];
+
+const LIBRARIES = [
+  {
+    code: "111189",
+    name: "도봉아이나라도서관",
+    roomName: "도봉아이나라도서관",
+    scope: "전체 장서",
+  },
+  {
+    code: "111058",
+    name: "노원중앙도서관",
+    roomName: "노원중앙도서관 종합자료실",
+    scope: "종합자료실 · 한국문학 KDC 810-819",
+  },
+] as const;
 
 const STATUS_META: Record<
   DetectionStatus,
@@ -218,6 +240,7 @@ function mapWorkerDetections(
 }
 
 function ShelfOpsPage() {
+  const [selectedLibraryCode, setSelectedLibraryCode] = useState("111189");
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imageSize, setImageSize] = useState<{
@@ -236,6 +259,16 @@ function ShelfOpsPage() {
     [detections, selectedId],
   );
   const counts = useMemo(() => statusCounts(detections), [detections]);
+  const selectedLibrary =
+    LIBRARIES.find((library) => library.code === selectedLibraryCode) ??
+    LIBRARIES[0];
+
+  const handleLibraryChange = (libraryCode: string) => {
+    setSelectedLibraryCode(libraryCode);
+    setDetections([]);
+    setSelectedId("");
+    setAnalysisError(null);
+  };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -283,7 +316,13 @@ function ShelfOpsPage() {
 
       const workerBaseUrl =
         import.meta.env.VITE_WORKER_BASE_URL ?? "http://localhost:8000";
-      const response = await fetch(`${workerBaseUrl}/inference/analyze_vision`, {
+      const workerUrl = new URL(
+        `${workerBaseUrl}/inference/analyze_vision`,
+        window.location.origin,
+      );
+      workerUrl.searchParams.set("library_code", selectedLibrary.code);
+      workerUrl.searchParams.set("room_name", selectedLibrary.roomName);
+      const response = await fetch(workerUrl, {
         method: "POST",
         body: formData,
         signal: controller.signal,
@@ -321,10 +360,25 @@ function ShelfOpsPage() {
         <div>
           <h2 className="font-extrabold text-xl">서가 스캔 검수</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            노원중앙도서관 종합자료실 · 한국문학 KDC 810-819
+            {selectedLibrary.name} · {selectedLibrary.scope}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Select
+            value={selectedLibraryCode}
+            onValueChange={handleLibraryChange}
+          >
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder="도서관 선택" />
+            </SelectTrigger>
+            <SelectContent>
+              {LIBRARIES.map((library) => (
+                <SelectItem key={library.code} value={library.code}>
+                  {library.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button asChild variant="outline">
             <label className="cursor-pointer">
               <ImageUpIcon className="size-4" />
