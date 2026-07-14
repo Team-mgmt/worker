@@ -67,14 +67,15 @@ async def process_and_load_items(session: AsyncSession, lib_code: str, items: Li
                 set_=book_update_dict
             ).returning(Book.book_id)
         else:
-            # Without ISBN, we might duplicate, but for MVP we skip or simple insert
-            pass # Simplification for MVP
+            # No ISBN to dedupe on: plain insert, one Book row per item.
+            book_stmt = book_stmt.returning(Book.book_id)
 
         result = await session.execute(book_stmt)
         book_id = result.scalar_one_or_none()
 
-        if not book_id:
-            # Fallback if no returning
+        if not book_id and isbn13:
+            # Fallback if no returning (isbn13 upsert path only; without an
+            # isbn13 the plain insert above always returns a book_id directly).
             b_res = await session.execute(select(Book).where(Book.isbn13 == isbn13))
             b_obj = b_res.scalars().first()
             if b_obj:

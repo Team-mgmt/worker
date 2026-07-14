@@ -31,19 +31,23 @@ async def import_csv_to_db(csv_path: str, lib_code: str = "111058"):
             
             count = 0
             for row in reader:
-                isbn13 = row.get('isbn13')
-                if not isbn13:
-                    continue
-                
-                # Check if book already exists to avoid duplicates
-                result = await session.execute(select(Book.book_id).where(Book.isbn13 == isbn13))
-                existing_book_id = result.scalar_one_or_none()
-                
+                isbn13 = row.get('isbn13') or None
+                book_code = row.get('bookCode', '')
+                class_no = row.get('classNo', '')
+
+                existing_book_id = None
+                if isbn13:
+                    # Check if book already exists to avoid duplicates
+                    result = await session.execute(select(Book.book_id).where(Book.isbn13 == isbn13))
+                    existing_book_id = result.scalar_one_or_none()
+
                 if not existing_book_id:
-                    # Create Book
+                    # Create Book. Without an isbn13 there is nothing to dedupe
+                    # on, so every ISBN-less row gets its own Book row (isbn13
+                    # stays NULL, which the unique index allows multiple of).
                     bookname = row.get('bookname', '')
                     authors = row.get('authors', '')
-                    
+
                     book = Book(
                         isbn13=isbn13,
                         bookname=bookname,
@@ -57,18 +61,19 @@ async def import_csv_to_db(csv_path: str, lib_code: str = "111058"):
                     session.add(book)
                     await session.flush() # Flush to get book_id
                     existing_book_id = book.book_id
-                
-                # Create Holding
-                call_number = row.get('callNumber', '')
-                class_no = row.get('classNo', '')
-                
+
+                # Create Holding. call_number is regenerated from class_no +
+                # book_code (not taken from the CSV's callNumber column,
+                # which may be missing/stale) to match catalog_etl.py.
+                call_number = generate_call_number(normalize_kdc(class_no), book_code)
+
                 holding = Holding(
                     book_id=existing_book_id,
                     library_code=lib_code,
                     class_no=class_no,
                     class_no_clean=normalize_kdc(class_no),
                     class_no_num=extract_class_no_num(class_no),
-                    book_code=row.get('bookCode', ''),
+                    book_code=book_code,
                     call_number=call_number,
                     normalized_call_number=normalize_text(call_number),
                     shelf_loc_name=row.get('shelfLocName', ''),
