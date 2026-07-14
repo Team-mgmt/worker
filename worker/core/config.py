@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     SCAN_ARTIFACTS_ENABLED: bool = False
     SCAN_ARTIFACTS_PREFIX: str = "shelfalign/scans"
     SCAN_ARTIFACTS_SAVE_CROPS: bool = True
+    OBB_CROP_PADDING_RATIO: float = 0.015
+    OBB_CROP_MIN_WIDTH: int = 256
+    OBB_CROP_MAX_EDGE: int = 3000
     
     @property
     def async_database_url(self) -> str:

@@ -10,6 +10,10 @@ class OCRResultItem(BaseModel):
     bbox: Optional[List[float]] = None
     crop_image_path: Optional[str] = None
     ocr_confidence: Optional[float] = None
+    detection_confidence: Optional[float] = None
+    obb_polygon: Optional[List[List[float]]] = None
+    crop_method: Optional[str] = None
+    crop_size: Optional[List[int]] = None
 
 class ScanSessionRequest(BaseModel):
     library_code: str
@@ -37,6 +41,10 @@ class DetectionResult(BaseModel):
     ocr_author: Optional[str] = None
     ocr_call_number: Optional[str] = None
     ocr_confidence: Optional[float] = None
+    detection_confidence: Optional[float] = None
+    obb_polygon: Optional[List[List[float]]] = None
+    crop_method: Optional[str] = None
+    crop_size: Optional[List[int]] = None
     matched_book: Optional[str] = None
     matched_call_number: Optional[str] = None
     match_method: Optional[str] = None

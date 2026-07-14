@@ -30,7 +30,12 @@ S3_BUCKET_NAME=your-private-scan-artifact-bucket
 SCAN_ARTIFACTS_ENABLED=true
 SCAN_ARTIFACTS_PREFIX=shelfalign/scans
 SCAN_ARTIFACTS_SAVE_CROPS=true
+OBB_CROP_PADDING_RATIO=0.015
+OBB_CROP_MIN_WIDTH=256
+OBB_CROP_MAX_EDGE=3000
 ```
+
+When the detector returns OBB coordinates, each book spine is perspective-rectified before OCR. The exact OCR input is stored under `crops/`, while `result.json` records `detection_confidence`, `obb_polygon`, `crop_method`, `crop_size`, and `crop_image_key` for evaluation.
 
 Use an EC2 IAM role instead of putting AWS access keys in `.env`. The worker needs this minimum
 permission, with the bucket name replaced:

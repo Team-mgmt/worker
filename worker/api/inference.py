@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from worker.core.database import get_db
 from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest
-from worker.services.detection_service import detector_service
+from worker.services.detection_service import SpineDetection, detector_service
 from worker.services.inference_service import process_scan_session_request
 from worker.services.ocr_field_parser import extract_ocr_fields
 from worker.services.scan_artifact_service import scan_artifact_service
@@ -138,15 +138,22 @@ async def analyze_yolo(
     from worker.services.vision_service import vision_service
 
     ocr_results_payload = []
-    for index, (x, y, w, h) in enumerate(boxes, start=1):
+    for index, detection in enumerate(boxes, start=1):
+        x, y, w, h = detection.bbox
         try:
-            extracted = vision_service.manual_crop_and_ocr(str(temp_path), (x, y, w, h), preprocess=preprocess)
+            extracted, crop_metadata = vision_service.crop_and_ocr(
+                str(temp_path),
+                crop_rect=(x, y, w, h),
+                obb_polygon=detection.polygon if detection.is_obb else None,
+                preprocess=preprocess,
+            )
             text = " ".join([res["text"] for res in extracted])
             confidence = sum([res["confidence"] for res in extracted]) / len(extracted) if extracted else 0.0
         except Exception as exc:
             print(f"OCR error for YOLO box {index}: {exc}")
             text = ""
             confidence = 0.0
+            crop_metadata = None
 
         title, author, call_number = extract_ocr_fields(text)
 
@@ -160,6 +167,10 @@ async def analyze_yolo(
                 bbox=[x, y, x + w, y + h],
                 crop_image_path=None,
                 ocr_confidence=confidence,
+                detection_confidence=detection.confidence,
+                obb_polygon=detection.polygon,
+                crop_method=crop_metadata.method if crop_metadata else None,
+                crop_size=crop_metadata.size if crop_metadata else None,
             )
         )
 
@@ -215,7 +226,7 @@ async def analyze_vision(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid image file: {exc}")
 
-    bboxes: list[tuple[int, int, int, int]] = []
+    detections = []
     detection_started_at = time.perf_counter()
     
     # 1. Option A Fallback: Check bboxes.json
@@ -227,47 +238,64 @@ async def analyze_vision(
                 bboxes_dict = json.load(f)
             if safe_filename in bboxes_dict:
                 # bboxes.json has [x1, y1, x2, y2]
-                bboxes = []
+                detections = []
                 for box in bboxes_dict[safe_filename]:
                     x1, y1, x2, y2 = box
-                    bboxes.append((int(x1), int(y1), int(x2 - x1), int(y2 - y1)))
-                analyze_log(f"[analyze_vision] Loaded {len(bboxes)} manual bboxes from tests/bboxes.json")
+                    detections.append(
+                        SpineDetection(
+                            bbox=(int(x1), int(y1), int(x2 - x1), int(y2 - y1)),
+                            confidence=None,
+                            polygon=[[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+                        )
+                    )
+                analyze_log(f"[analyze_vision] Loaded {len(detections)} manual bboxes from tests/bboxes.json")
         except Exception as exc:
             analyze_log(f"[analyze_vision] Failed to load bboxes.json: {exc}")
 
     # 2. YOLO Detection (if no manual bboxes and YOLO is ready)
-    if not bboxes:
+    if not detections:
         if detector_service.is_ready:
             try:
-                bboxes = detector_service.detect_spines(str(temp_path))
-                analyze_log(f"[analyze_vision] YOLO detected {len(bboxes)} spines")
+                detections = detector_service.detect_spines(str(temp_path))
+                analyze_log(f"[analyze_vision] YOLO detected {len(detections)} spines")
             except Exception as exc:
                 analyze_log(f"[analyze_vision] YOLO detection failed: {exc}")
         else:
             analyze_log("[analyze_vision] YOLO is not ready and no manual bboxes found. Fallback to 1 whole image bbox.")
-            bboxes = [(0, 0, image_width, image_height)]
+            detections = [
+                SpineDetection(
+                    bbox=(0, 0, image_width, image_height),
+                    confidence=None,
+                    polygon=[[0, 0], [image_width, 0], [image_width, image_height], [0, image_height]],
+                )
+            ]
 
     detection_elapsed = time.perf_counter() - detection_started_at
 
     # 3. PaddleOCR for each BBox
     from worker.services.vision_service import vision_service
     ocr_results_payload = []
+    crop_dir = upload_dir / "crops"
     
     ocr_started_at = time.perf_counter()
-    for order, (crop_x, crop_y, crop_width, crop_height) in enumerate(bboxes, start=1):
+    for order, detection in enumerate(detections, start=1):
+        crop_x, crop_y, crop_width, crop_height = detection.bbox
         crop_rect = (crop_x, crop_y, crop_width, crop_height)
         bbox_pixels = [float(crop_x), float(crop_y), float(crop_x + crop_width), float(crop_y + crop_height)]
         
         paddle_text = ""
         paddle_confidence = None
         call_number = ""
+        crop_metadata = None
 
         try:
             spine_ocr_started_at = time.perf_counter()
-            extracted = vision_service.manual_crop_and_ocr(
+            extracted, crop_metadata = vision_service.crop_and_ocr(
                 str(temp_path),
-                crop_rect,
+                crop_rect=crop_rect,
+                obb_polygon=detection.polygon if detection.is_obb else None,
                 preprocess=preprocess,
+                crop_output_path=str(crop_dir / f"{order:03d}.jpg"),
             )
             paddle_text = join_ocr_text(extracted)
             paddle_confidence = average_ocr_confidence(extracted)
@@ -290,8 +318,12 @@ async def analyze_vision(
                 author=author,
                 call_number=call_number or None,
                 bbox=bbox_pixels,
-                crop_image_path=None,
+                crop_image_path=crop_metadata.path if crop_metadata else None,
                 ocr_confidence=paddle_confidence,
+                detection_confidence=detection.confidence,
+                obb_polygon=detection.polygon,
+                crop_method=crop_metadata.method if crop_metadata else None,
+                crop_size=crop_metadata.size if crop_metadata else None,
             )
         )
 

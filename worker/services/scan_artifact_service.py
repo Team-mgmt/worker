@@ -88,12 +88,20 @@ class ScanArtifactService:
             crop_keys: dict[int, str] = {}
             if settings.SCAN_ARTIFACTS_SAVE_CROPS:
                 for result in response.results:
-                    crop = self._crop(image, result.bbox)
-                    if crop is None:
-                        continue
                     crop_key = f"{prefix}/crops/{result.detected_order:03d}.jpg"
-                    await self._put_image(client, crop_key, crop)
+                    crop_path = Path(result.crop_image_path) if result.crop_image_path else None
+                    if crop_path and crop_path.is_file():
+                        await self._put_bytes(client, crop_key, crop_path.read_bytes(), "image/jpeg")
+                    else:
+                        crop = self._crop(image, result.bbox)
+                        if crop is None:
+                            continue
+                        await self._put_image(client, crop_key, crop)
                     crop_keys[result.detected_order] = crop_key
+
+            inference_payload = response.model_dump(mode="json", exclude={"artifact_run_id", "artifact_prefix"})
+            for result in inference_payload.get("results", []):
+                result["crop_image_key"] = crop_keys.get(result["detected_order"])
 
             result_payload: dict[str, Any] = {
                 "schema_version": "1.0",
@@ -112,7 +120,7 @@ class ScanArtifactService:
                     "ocr": "PaddleOCR",
                 },
                 "timings_seconds": timings,
-                "inference": response.model_dump(mode="json", exclude={"artifact_run_id", "artifact_prefix"}),
+                "inference": inference_payload,
             }
             await self._put_bytes(
                 client,
@@ -177,7 +185,11 @@ class ScanArtifactService:
                 continue
             color = colors.get(result.decision, "#71717a")
             box = tuple(round(value) for value in result.bbox)
-            draw.rectangle(box, outline=color, width=width)
+            if result.obb_polygon and len(result.obb_polygon) == 4:
+                polygon = [(round(point[0]), round(point[1])) for point in result.obb_polygon]
+                draw.line([*polygon, polygon[0]], fill=color, width=width, joint="curve")
+            else:
+                draw.rectangle(box, outline=color, width=width)
             label = f"{result.detected_order} {result.decision} {result.match_score or 0:.1f}"
             text_box = draw.textbbox((box[0], box[1]), label, font=font)
             draw.rectangle(text_box, fill=color)
