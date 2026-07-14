@@ -17,7 +17,7 @@
 | ISBN 결측 | 5건 (매우 낮음) |
 | callNumber 컬럼 결측 | 102,566건 (98%) — **원본 컬럼을 그대로 못 씀**, classNo+bookCode로 재계산 필요 |
 | shelfLocName 예시 | `[아이나라]종합자료실(2층)`, `[아이나라]유아자료실(1층)` 등 10종 |
-| 복본(같은 책 2권 이상) | 12,854건 (전체 책 종수의 약 12%) |
+| 복본(같은 책 2권 이상) | 6,015건 (전체 책 종수 97,814종의 약 6.15%) — [docs/dobong-ainara-selection-rationale.md](./dobong-ainara-selection-rationale.md) §2.2에서 isbn13·book_id 두 방식으로 재검증한 값으로 정정 (최초 기재값 12,854건/12%는 오류) |
 
 **노원중앙도서관과의 구조 차이:**
 - 노원은 `shelfLocName`이 "종합자료실"처럼 단순했는데, 도봉은 `[아이나라]종합자료실(2층)`처럼 접두사·층수가 붙음. 다행히 기존 필터 로직(`scripts/sync_nowon_catalog.py`)이 **부분일치**(`in`)라서 그대로도 걸러집니다.
