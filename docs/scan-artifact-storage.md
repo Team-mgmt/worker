@@ -46,12 +46,24 @@ permission, with the bucket name replaced:
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": ["s3:PutObject"],
+      "Action": ["s3:GetObject", "s3:PutObject"],
       "Resource": "arn:aws:s3:::your-private-scan-artifact-bucket/shelfalign/scans/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::your-private-scan-artifact-bucket",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": ["shelfalign/scans/*"]
+        }
+      }
     }
   ]
 }
 ```
+
+The backoffice `GT 라벨 검수` page uses these read permissions to list runs and proxy the private original image through the worker. Saving reviewed polygons writes `ground-truth.json` beside `result.json` and calculates single-class AP50, precision, recall, F1, TP, FP, and FN at IoU 0.5. The same file includes normalized YOLO-OBB label lines, so reviewed images can later be exported into a detector training dataset without redrawing the polygons.
 
 Keep Block Public Access enabled. Add an S3 Lifecycle rule to expire development scans or move
 older artifacts to an archive class. S3 failures are logged but do not fail the inference response.

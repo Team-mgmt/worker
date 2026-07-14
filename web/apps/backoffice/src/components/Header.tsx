@@ -10,26 +10,37 @@ import {
 } from "./ui/dropdown-menu";
 
 export function Header() {
-  const displayName = "관리자";
-
   return (
-    <header className="w-full h-16 flex justify-between items-center overflow-visible pt-4">
-      <Link to="/" className="font-semibold font-mono text-2xl leading-11 h-12">
-        ShelfAlign
-      </Link>
+    <header className="flex h-16 w-full items-center justify-between overflow-visible pt-4">
+      <div className="flex items-center gap-6">
+        <Link
+          to="/"
+          className="h-12 font-mono text-2xl font-semibold leading-11"
+        >
+          ShelfAlign
+        </Link>
+        <nav className="hidden items-center gap-4 text-sm font-medium md:flex">
+          <Link to="/shelf-ops" activeProps={{ className: "font-bold" }}>
+            서가 검수
+          </Link>
+          <Link to="/evaluation" activeProps={{ className: "font-bold" }}>
+            GT 라벨 검수
+          </Link>
+        </nav>
+      </div>
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="flex items-center relative outline-none"
-          aria-label="메뉴 열기"
+          className="relative flex items-center outline-none"
+          aria-label="사용자 메뉴 열기"
         >
           <p className="hidden sm:block">
-            안녕하세요, <span className="font-bold">{displayName}</span>님
+            안녕하세요, <span className="font-bold">관리자</span>님
           </p>
-          <ChevronDownIcon className="ml-2 w-4 h-4 mb-1" />
+          <ChevronDownIcon className="mb-1 ml-2 size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           <DropdownMenuItem className="block sm:hidden">
-            안녕하세요, <span className="font-bold">{displayName}</span>님
+            안녕하세요, <span className="font-bold">관리자</span>님
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

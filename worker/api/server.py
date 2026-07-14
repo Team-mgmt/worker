@@ -7,7 +7,7 @@ if sys.platform == "win32":
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from worker.api import catalog, inference
+from worker.api import artifact_evaluation, catalog, inference
 
 app = FastAPI(
     title="ShelfAlign Worker API",
@@ -26,6 +26,7 @@ app.add_middleware(
 # Mount Routers
 app.include_router(catalog.router)
 app.include_router(inference.router)
+app.include_router(artifact_evaluation.router)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request, exc):

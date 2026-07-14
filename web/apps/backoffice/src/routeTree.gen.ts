@@ -16,6 +16,7 @@ import { Route as AuthSigninIndexRouteImport } from './routes/auth/signin/index'
 import { Route as AppShelfOpsIndexRouteImport } from './routes/_app/shelf-ops/index'
 import { Route as AppProvidersIndexRouteImport } from './routes/_app/providers/index'
 import { Route as AppOrganizationsIndexRouteImport } from './routes/_app/organizations/index'
+import { Route as AppEvaluationIndexRouteImport } from './routes/_app/evaluation/index'
 import { Route as AppDocumentsIndexRouteImport } from './routes/_app/documents/index'
 import { Route as AppOrganizationsOrganizationIdIndexRouteImport } from './routes/_app/organizations/$organizationId/index'
 import { Route as AppDocumentsCreateIndexRouteImport } from './routes/_app/documents/create/index'
@@ -56,6 +57,11 @@ const AppOrganizationsIndexRoute = AppOrganizationsIndexRouteImport.update({
   path: '/organizations/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppEvaluationIndexRoute = AppEvaluationIndexRouteImport.update({
+  id: '/evaluation/',
+  path: '/evaluation/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDocumentsIndexRoute = AppDocumentsIndexRouteImport.update({
   id: '/documents/',
   path: '/documents/',
@@ -88,6 +94,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/scan/': typeof ScanIndexRoute
   '/documents/': typeof AppDocumentsIndexRoute
+  '/evaluation/': typeof AppEvaluationIndexRoute
   '/organizations/': typeof AppOrganizationsIndexRoute
   '/providers/': typeof AppProvidersIndexRoute
   '/shelf-ops/': typeof AppShelfOpsIndexRoute
@@ -101,6 +108,7 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/scan': typeof ScanIndexRoute
   '/documents': typeof AppDocumentsIndexRoute
+  '/evaluation': typeof AppEvaluationIndexRoute
   '/organizations': typeof AppOrganizationsIndexRoute
   '/providers': typeof AppProvidersIndexRoute
   '/shelf-ops': typeof AppShelfOpsIndexRoute
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/_app/': typeof AppIndexRoute
   '/scan/': typeof ScanIndexRoute
   '/_app/documents/': typeof AppDocumentsIndexRoute
+  '/_app/evaluation/': typeof AppEvaluationIndexRoute
   '/_app/organizations/': typeof AppOrganizationsIndexRoute
   '/_app/providers/': typeof AppProvidersIndexRoute
   '/_app/shelf-ops/': typeof AppShelfOpsIndexRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/'
     | '/scan/'
     | '/documents/'
+    | '/evaluation/'
     | '/organizations/'
     | '/providers/'
     | '/shelf-ops/'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | '/'
     | '/scan'
     | '/documents'
+    | '/evaluation'
     | '/organizations'
     | '/providers'
     | '/shelf-ops'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | '/_app/'
     | '/scan/'
     | '/_app/documents/'
+    | '/_app/evaluation/'
     | '/_app/organizations/'
     | '/_app/providers/'
     | '/_app/shelf-ops/'
@@ -225,6 +237,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppOrganizationsIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/evaluation/': {
+      id: '/_app/evaluation/'
+      path: '/evaluation'
+      fullPath: '/evaluation/'
+      preLoaderRoute: typeof AppEvaluationIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/documents/': {
       id: '/_app/documents/'
       path: '/documents'
@@ -266,6 +285,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppDocumentsIndexRoute: typeof AppDocumentsIndexRoute
+  AppEvaluationIndexRoute: typeof AppEvaluationIndexRoute
   AppOrganizationsIndexRoute: typeof AppOrganizationsIndexRoute
   AppProvidersIndexRoute: typeof AppProvidersIndexRoute
   AppShelfOpsIndexRoute: typeof AppShelfOpsIndexRoute
@@ -278,6 +298,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppDocumentsIndexRoute: AppDocumentsIndexRoute,
+  AppEvaluationIndexRoute: AppEvaluationIndexRoute,
   AppOrganizationsIndexRoute: AppOrganizationsIndexRoute,
   AppProvidersIndexRoute: AppProvidersIndexRoute,
   AppShelfOpsIndexRoute: AppShelfOpsIndexRoute,

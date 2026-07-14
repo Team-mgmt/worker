@@ -13,6 +13,7 @@ import aioboto3
 from PIL import Image, ImageDraw, ImageFont
 
 from worker.core.config import settings
+from worker.schemas.artifact_evaluation import ArtifactRunSummary
 from worker.schemas.inference import MatchResponse
 
 
@@ -56,6 +57,104 @@ class ScanArtifactService:
                 safe_key_part(run_id),
             )
         )
+
+    async def list_runs(self, library_code: str | None = None, limit: int = 50) -> list[ArtifactRunSummary]:
+        root = settings.SCAN_ARTIFACTS_PREFIX.strip("/")
+        search_prefix = f"{root}/{safe_key_part(library_code)}/" if library_code else f"{root}/"
+        session = aioboto3.Session()
+        result_objects: list[dict[str, Any]] = []
+        ground_truth_keys: set[str] = set()
+        continuation_token: str | None = None
+
+        async with session.client("s3", region_name=settings.AWS_REGION) as client:
+            while True:
+                params: dict[str, Any] = {
+                    "Bucket": settings.S3_BUCKET_NAME,
+                    "Prefix": search_prefix,
+                    "MaxKeys": 1000,
+                }
+                if continuation_token:
+                    params["ContinuationToken"] = continuation_token
+                page = await client.list_objects_v2(**params)
+                for item in page.get("Contents", []):
+                    key = item["Key"]
+                    if key.endswith("/result.json"):
+                        result_objects.append(item)
+                    elif key.endswith("/ground-truth.json"):
+                        ground_truth_keys.add(key)
+                if not page.get("IsTruncated"):
+                    break
+                continuation_token = page.get("NextContinuationToken")
+
+        summaries: list[ArtifactRunSummary] = []
+        for item in sorted(result_objects, key=lambda value: value["LastModified"], reverse=True)[:limit]:
+            result_key = item["Key"]
+            prefix = result_key.removesuffix("/result.json")
+            parts = prefix.split("/")
+            if len(parts) < 3:
+                continue
+            summaries.append(
+                ArtifactRunSummary(
+                    run_id=parts[-1],
+                    library_code=parts[2],
+                    created_at=item["LastModified"],
+                    prefix=prefix,
+                    has_ground_truth=f"{prefix}/ground-truth.json" in ground_truth_keys,
+                )
+            )
+        return summaries
+
+    async def find_run_prefix(self, run_id: str, library_code: str | None = None) -> str:
+        root = settings.SCAN_ARTIFACTS_PREFIX.strip("/")
+        search_prefix = f"{root}/{safe_key_part(library_code)}/" if library_code else f"{root}/"
+        target_suffix = f"/{safe_key_part(run_id)}/result.json"
+        session = aioboto3.Session()
+        continuation_token: str | None = None
+        async with session.client("s3", region_name=settings.AWS_REGION) as client:
+            while True:
+                params: dict[str, Any] = {
+                    "Bucket": settings.S3_BUCKET_NAME,
+                    "Prefix": search_prefix,
+                    "MaxKeys": 1000,
+                }
+                if continuation_token:
+                    params["ContinuationToken"] = continuation_token
+                page = await client.list_objects_v2(**params)
+                for item in page.get("Contents", []):
+                    if item["Key"].endswith(target_suffix):
+                        return item["Key"].removesuffix("/result.json")
+                if not page.get("IsTruncated"):
+                    break
+                continuation_token = page.get("NextContinuationToken")
+        raise FileNotFoundError(f"Artifact run not found: {run_id}")
+
+    async def get_json(self, key: str, *, required: bool = True) -> dict | None:
+        session = aioboto3.Session()
+        try:
+            async with session.client("s3", region_name=settings.AWS_REGION) as client:
+                response = await client.get_object(Bucket=settings.S3_BUCKET_NAME, Key=key)
+                return json.loads((await response["Body"].read()).decode("utf-8"))
+        except Exception as exc:
+            error_code = getattr(exc, "response", {}).get("Error", {}).get("Code")
+            if not required and error_code in {"NoSuchKey", "404"}:
+                return None
+            raise
+
+    async def get_bytes(self, key: str) -> tuple[bytes, str]:
+        session = aioboto3.Session()
+        async with session.client("s3", region_name=settings.AWS_REGION) as client:
+            response = await client.get_object(Bucket=settings.S3_BUCKET_NAME, Key=key)
+            return await response["Body"].read(), response.get("ContentType", "application/octet-stream")
+
+    async def put_json(self, key: str, payload: dict) -> None:
+        session = aioboto3.Session()
+        async with session.client("s3", region_name=settings.AWS_REGION) as client:
+            await self._put_bytes(
+                client,
+                key,
+                json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
 
     async def save_scan(
         self,
