@@ -91,7 +91,8 @@ type ArtifactDetail = {
 
 function workerUrl(path: string) {
   const configured =
-    import.meta.env.VITE_WORKER_BASE_URL ?? "http://localhost:8000";
+    import.meta.env.VITE_WORKER_BASE_URL ??
+    (import.meta.env.DEV ? "http://localhost:8000" : "/worker");
   const base = new URL(
     configured.endsWith("/") ? configured : `${configured}/`,
     window.location.origin,

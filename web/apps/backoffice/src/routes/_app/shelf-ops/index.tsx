@@ -301,7 +301,8 @@ function ShelfOpsPage() {
       formData.set("file", selectedFile);
 
       const workerBaseUrl =
-        import.meta.env.VITE_WORKER_BASE_URL ?? "http://localhost:8000";
+        import.meta.env.VITE_WORKER_BASE_URL ??
+        (import.meta.env.DEV ? "http://localhost:8000" : "/worker");
       const workerUrl = new URL(
         `${workerBaseUrl}/inference/analyze_vision`,
         window.location.origin,
@@ -330,8 +331,8 @@ function ShelfOpsPage() {
         error instanceof DOMException && error.name === "AbortError"
           ? "worker 분석 요청이 60초를 초과했습니다. VLM 응답 지연 또는 외부 API 문제일 수 있습니다."
           : error instanceof Error
-          ? error.message
-          : "worker 분석 중 오류가 발생했습니다.",
+            ? error.message
+            : "worker 분석 중 오류가 발생했습니다.",
       );
     } finally {
       window.clearTimeout(timeoutId);
@@ -536,7 +537,8 @@ function DetectionOverlay({
             className={cn(
               "absolute rounded-[4px] border-2 transition",
               meta.markerClassName,
-              isSelected && "ring-2 ring-white ring-offset-2 ring-offset-zinc-950",
+              isSelected &&
+                "ring-2 ring-white ring-offset-2 ring-offset-zinc-950",
             )}
             style={{
               left: `${detection.bbox.x}%`,

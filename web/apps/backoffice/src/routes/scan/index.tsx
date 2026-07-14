@@ -181,7 +181,8 @@ function ScanPage() {
       formData.set("file", file);
 
       const workerBaseUrl =
-        import.meta.env.VITE_WORKER_BASE_URL ?? "http://localhost:8000";
+        import.meta.env.VITE_WORKER_BASE_URL ??
+        (import.meta.env.DEV ? "http://localhost:8000" : "/worker");
       const workerUrl = new URL(
         `${workerBaseUrl}/inference/analyze_vision`,
         window.location.origin,
