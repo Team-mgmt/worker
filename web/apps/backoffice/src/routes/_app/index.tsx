@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import {
-  BookOpenCheckIcon,
   DatabaseIcon,
   ImageUpIcon,
   SearchCheckIcon,
@@ -20,21 +19,18 @@ const ACTIONS = [
     description: "서가 이미지, 책등 BBox, OCR, DB 매칭, 오배열 판정을 한 화면에서 검수합니다.",
     to: "/shelf-ops",
     icon: ImageUpIcon,
-    primary: true,
   },
   {
     title: "도서 데이터셋",
     description: "정보나루/도서관 장서 데이터를 기반으로 청구기호와 도서 후보를 매칭합니다.",
     to: "/books",
     icon: DatabaseIcon,
-    primary: false,
   },
   {
     title: "매칭 검수",
     description: "청구기호, 제목, 저자 후보를 비교하고 수동 검수 대상을 확인합니다.",
     to: "/shelf-ops",
     icon: SearchCheckIcon,
-    primary: false,
   },
 ];
 
@@ -50,34 +46,23 @@ function RouteComponent() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           {ACTIONS.map((action) => {
             const Icon = action.icon;
 
             return (
-              <Card
-                key={action.title}
-                className={
-                  action.primary
-                    ? "border-zinc-900 bg-zinc-950 text-white"
-                    : undefined
-                }
-              >
-                <Link to={action.to}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Icon className="size-5" />
+              <Card key={action.title} className="min-h-56 transition-colors hover:border-zinc-500">
+                <Link to={action.to} className="flex min-h-56 flex-col">
+                  <CardHeader className="px-6 pt-7">
+                    <div className="mb-5 flex size-12 items-center justify-center bg-zinc-950 text-white">
+                      <Icon className="size-6" />
+                    </div>
+                    <CardTitle className="text-lg">
                       {action.title}
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <p
-                      className={
-                        action.primary
-                          ? "text-sm text-zinc-300"
-                          : "text-sm text-muted-foreground"
-                      }
-                    >
+                  <CardContent className="px-6 pb-7">
+                    <p className="text-sm leading-6 text-muted-foreground">
                       {action.description}
                     </p>
                   </CardContent>
@@ -87,28 +72,19 @@ function RouteComponent() {
           })}
         </div>
 
-        <Card className="mt-4">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BookOpenCheckIcon className="size-5" />
-              운영 파이프라인
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
-              {["이미지 업로드", "책등 검출", "DB 매칭", "오배열 판정"].map(
-                (step, index) => (
-                  <div key={step} className="rounded-md border px-3 py-2">
-                    <p className="text-xs text-muted-foreground">
-                      Step {index + 1}
-                    </p>
-                    <p className="mt-1 font-semibold">{step}</p>
-                  </div>
-                ),
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <footer className="mt-16 border-t py-8 text-xs leading-6 text-muted-foreground">
+          <nav className="mb-3 flex flex-wrap gap-x-4 font-semibold text-zinc-700">
+            <a href="#about">ABOUT</a>
+            <a href="#contact">CONTACT</a>
+            <a href="#terms">TERMS &amp; CONDITIONS</a>
+            <a href="#privacy">PRIVACY POLICY</a>
+          </nav>
+          <p>ⓒ ShelfAlign, All rights reserved</p>
+          <p>등록번호 000-00-00000 | 상호 ShelfAlign | 대표자명 임준수</p>
+          <p>
+            연락처 02-0000-0000 | 사업장주소 서울특별시 종로구 홍지문2길 20 상명대학교 학생회관
+          </p>
+        </footer>
       </div>
     </>
   );
