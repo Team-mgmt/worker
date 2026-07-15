@@ -21,6 +21,7 @@ import { PrismaModule } from "./providers/database/prisma.module";
 import { KeyModule } from "./providers/keys/keys.module";
 import { S3Module } from "./providers/s3/s3.module";
 import { AdminDocumentModule } from "./routes/admin/document/document.module";
+import { AdminLibraryBooksModule } from "./routes/admin/library-books/library-books.module";
 import { AdminOrganizationModule } from "./routes/admin/organization/organization.module";
 import { AdminProviderModule } from "./routes/admin/providers/provider.module";
 import { AuthModule } from "./routes/auth/auth.module";
@@ -49,6 +50,7 @@ import { UploadModule } from "./routes/service/upload/upload.module";
     AuthModule,
     UploadModule,
     AdminDocumentModule,
+    AdminLibraryBooksModule,
     AdminOrganizationModule,
     AdminProviderModule,
   ],

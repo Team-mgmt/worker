@@ -28,6 +28,9 @@ export function Header() {
           ShelfAlign
         </Link>
         <nav className="hidden items-center gap-4 text-sm font-medium md:flex">
+          <Link to="/books" activeProps={{ className: "font-bold" }}>
+            도서 데이터셋
+          </Link>
           <Link to="/shelf-ops" activeProps={{ className: "font-bold" }}>
             서가 검수
           </Link>

@@ -18,6 +18,7 @@ import { Route as AppProvidersIndexRouteImport } from './routes/_app/providers/i
 import { Route as AppOrganizationsIndexRouteImport } from './routes/_app/organizations/index'
 import { Route as AppEvaluationIndexRouteImport } from './routes/_app/evaluation/index'
 import { Route as AppDocumentsIndexRouteImport } from './routes/_app/documents/index'
+import { Route as AppBooksIndexRouteImport } from './routes/_app/books/index'
 import { Route as AppOrganizationsOrganizationIdIndexRouteImport } from './routes/_app/organizations/$organizationId/index'
 import { Route as AppDocumentsCreateIndexRouteImport } from './routes/_app/documents/create/index'
 import { Route as AppDocumentsSlugIndexRouteImport } from './routes/_app/documents/$slug/index'
@@ -67,6 +68,11 @@ const AppDocumentsIndexRoute = AppDocumentsIndexRouteImport.update({
   path: '/documents/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppBooksIndexRoute = AppBooksIndexRouteImport.update({
+  id: '/books/',
+  path: '/books/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppOrganizationsOrganizationIdIndexRoute =
   AppOrganizationsOrganizationIdIndexRouteImport.update({
     id: '/organizations/$organizationId/',
@@ -93,6 +99,7 @@ const AppOrganizationsOrganizationIdEditRoute =
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/scan/': typeof ScanIndexRoute
+  '/books/': typeof AppBooksIndexRoute
   '/documents/': typeof AppDocumentsIndexRoute
   '/evaluation/': typeof AppEvaluationIndexRoute
   '/organizations/': typeof AppOrganizationsIndexRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/scan': typeof ScanIndexRoute
+  '/books': typeof AppBooksIndexRoute
   '/documents': typeof AppDocumentsIndexRoute
   '/evaluation': typeof AppEvaluationIndexRoute
   '/organizations': typeof AppOrganizationsIndexRoute
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/_app/': typeof AppIndexRoute
   '/scan/': typeof ScanIndexRoute
+  '/_app/books/': typeof AppBooksIndexRoute
   '/_app/documents/': typeof AppDocumentsIndexRoute
   '/_app/evaluation/': typeof AppEvaluationIndexRoute
   '/_app/organizations/': typeof AppOrganizationsIndexRoute
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/scan/'
+    | '/books/'
     | '/documents/'
     | '/evaluation/'
     | '/organizations/'
@@ -153,6 +163,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/scan'
+    | '/books'
     | '/documents'
     | '/evaluation'
     | '/organizations'
@@ -168,6 +179,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/_app/'
     | '/scan/'
+    | '/_app/books/'
     | '/_app/documents/'
     | '/_app/evaluation/'
     | '/_app/organizations/'
@@ -251,6 +263,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDocumentsIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/books/': {
+      id: '/_app/books/'
+      path: '/books'
+      fullPath: '/books/'
+      preLoaderRoute: typeof AppBooksIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/organizations/$organizationId/': {
       id: '/_app/organizations/$organizationId/'
       path: '/organizations/$organizationId'
@@ -284,6 +303,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
+  AppBooksIndexRoute: typeof AppBooksIndexRoute
   AppDocumentsIndexRoute: typeof AppDocumentsIndexRoute
   AppEvaluationIndexRoute: typeof AppEvaluationIndexRoute
   AppOrganizationsIndexRoute: typeof AppOrganizationsIndexRoute
@@ -297,6 +317,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
+  AppBooksIndexRoute: AppBooksIndexRoute,
   AppDocumentsIndexRoute: AppDocumentsIndexRoute,
   AppEvaluationIndexRoute: AppEvaluationIndexRoute,
   AppOrganizationsIndexRoute: AppOrganizationsIndexRoute,

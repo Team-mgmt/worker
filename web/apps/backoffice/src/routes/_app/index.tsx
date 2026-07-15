@@ -25,7 +25,7 @@ const ACTIONS = [
   {
     title: "도서 데이터셋",
     description: "정보나루/도서관 장서 데이터를 기반으로 청구기호와 도서 후보를 매칭합니다.",
-    to: "/shelf-ops",
+    to: "/books",
     icon: DatabaseIcon,
     primary: false,
   },
