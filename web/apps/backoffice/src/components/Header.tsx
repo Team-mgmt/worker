@@ -1,6 +1,6 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, LogOutIcon } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -10,6 +10,14 @@ import {
 } from "./ui/dropdown-menu";
 
 export function Header() {
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("organization");
+    void navigate({ to: "/auth/signin", replace: true });
+  };
+
   return (
     <header className="flex h-16 w-full items-center justify-between overflow-visible pt-4">
       <div className="flex items-center gap-6">
@@ -41,6 +49,10 @@ export function Header() {
         <DropdownMenuContent>
           <DropdownMenuItem className="block sm:hidden">
             안녕하세요, <span className="font-bold">관리자</span>님
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleLogout}>
+            <LogOutIcon className="size-4" />
+            로그아웃
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
