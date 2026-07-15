@@ -13,6 +13,7 @@
     "check-types": "tsc --project tsconfig.build.json --noEmit",
     "check-types:test": "tsc --project tsconfig.test.json --noEmit",
     "start": "nest start",
+    "admin:upsert": "tsx scripts/upsert-admin.ts",
     "clean": "rimraf dist",
     "test": "jest",
     "test:di": "jest --runTestsByPath test/app-di.spec.ts",
