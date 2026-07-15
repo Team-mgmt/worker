@@ -27,9 +27,9 @@ const ACTIONS = [
     icon: DatabaseIcon,
   },
   {
-    title: "매칭 검수",
-    description: "청구기호, 제목, 저자 후보를 비교하고 수동 검수 대상을 확인합니다.",
-    to: "/shelf-ops",
+    title: "GT 라벨 검수",
+    description: "S3 분석 실행의 책등 영역을 교정하고 검출 평가지표와 학습용 라벨을 생성합니다.",
+    to: "/evaluation",
     icon: SearchCheckIcon,
   },
 ];
