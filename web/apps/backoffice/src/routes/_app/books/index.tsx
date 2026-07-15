@@ -47,6 +47,15 @@ type ListResponse = {
 
 const PAGE_SIZE = 25;
 
+function apiUrl(path: string) {
+  const configured = import.meta.env.VITE_BASE_URL || "/api";
+  const base = new URL(
+    configured.endsWith("/") ? configured : `${configured}/`,
+    window.location.origin,
+  );
+  return new URL(path.replace(/^\//, ""), base).toString();
+}
+
 function LibraryBooksPage() {
   const [libraryCode, setLibraryCode] = useState<string>(LIBRARIES[0].code);
   const [input, setInput] = useState("");
@@ -60,7 +69,7 @@ function LibraryBooksPage() {
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    ky.get(`${import.meta.env.VITE_BASE_URL}/admin/library-books`, {
+    ky.get(apiUrl("admin/library-books"), {
       searchParams: {
         libraryCode,
         query,
