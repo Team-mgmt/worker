@@ -34,6 +34,10 @@ class CropMetadata:
     method: str
     size: list[int]
     path: str | None = None
+    ocr_variant: str = "original"
+    attempt_count: int = 1
+    label_text: str | None = None
+    label_confidence: float | None = None
 
 
 class VisionService:
@@ -121,9 +125,116 @@ class VisionService:
             encoded.tofile(output_path)
             saved_path = str(output_path)
 
-        result = self.ocr.ocr(cropped)
-        metadata = CropMetadata(method=method, size=[int(cropped.shape[1]), int(cropped.shape[0])], path=saved_path)
-        return self._parse_ocr_result(result, x, y), metadata
+        extracted, diagnostics = self._adaptive_ocr(cropped)
+        metadata = CropMetadata(
+            method=method,
+            size=[int(cropped.shape[1]), int(cropped.shape[0])],
+            path=saved_path,
+            ocr_variant=diagnostics["variant"],
+            attempt_count=diagnostics["attempt_count"],
+            label_text=diagnostics["label_text"],
+            label_confidence=diagnostics["label_confidence"],
+        )
+        return self._offset_results(extracted, x, y), metadata
+
+    def _adaptive_ocr(self, cropped: np.ndarray) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        candidates: list[tuple[str, list[dict[str, Any]]]] = []
+
+        primary = self._run_ocr(cropped)
+        candidates.append(("original", primary))
+
+        # Shelf labels contain the strongest matching key. Always inspect the
+        # lower region independently so title text cannot suppress small labels.
+        label_image = self._prepare_label_region(cropped)
+        label_result = self._run_ocr(label_image)
+        label_text = self._join_text(label_result)
+        label_confidence = self._average_confidence(label_result)
+
+        primary_text = self._join_text(primary)
+        primary_confidence = self._average_confidence(primary) or 0.0
+        needs_fallback = (
+            settings.OCR_ENABLE_ADAPTIVE_FALLBACK
+            and (primary_confidence < settings.OCR_FALLBACK_CONFIDENCE or not self._has_call_number(primary_text))
+        )
+
+        if needs_fallback:
+            variants = [
+                ("clahe_sharpen", self._enhance_for_ocr(cropped)),
+                ("rotate_90", cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)),
+                ("rotate_270", cv2.rotate(cropped, cv2.ROTATE_90_COUNTERCLOCKWISE)),
+            ]
+            for name, image in variants[: max(0, settings.OCR_MAX_FALLBACK_VARIANTS)]:
+                candidates.append((name, self._run_ocr(image)))
+
+        variant, best = max(candidates, key=lambda item: self._candidate_score(item[1]))
+        best_text = self._join_text(best)
+        if label_text and self._has_call_number(label_text) and label_text not in best_text:
+            best = [*best, *label_result]
+            variant = f"{variant}+label"
+
+        return best, {
+            "variant": variant,
+            "attempt_count": len(candidates) + 1,
+            "label_text": label_text or None,
+            "label_confidence": label_confidence,
+        }
+
+    def _run_ocr(self, image: np.ndarray) -> list[dict[str, Any]]:
+        return self._parse_ocr_result(self.ocr.ocr(image), 0, 0)
+
+    @staticmethod
+    def _prepare_label_region(image: np.ndarray) -> np.ndarray:
+        height, width = image.shape[:2]
+        ratio = min(0.6, max(0.2, settings.OCR_LABEL_REGION_RATIO))
+        label = image[max(0, int(height * (1.0 - ratio))) : height, :]
+        target_width = max(width, settings.OBB_CROP_MIN_WIDTH)
+        scale = target_width / max(1, width)
+        label = cv2.resize(label, (target_width, max(1, round(label.shape[0] * scale))), interpolation=cv2.INTER_CUBIC)
+        return VisionService._enhance_for_ocr(label)
+
+    @staticmethod
+    def _enhance_for_ocr(image: np.ndarray) -> np.ndarray:
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        lightness, channel_a, channel_b = cv2.split(lab)
+        lightness = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(lightness)
+        enhanced = cv2.cvtColor(cv2.merge((lightness, channel_a, channel_b)), cv2.COLOR_LAB2BGR)
+        blurred = cv2.GaussianBlur(enhanced, (0, 0), 1.0)
+        return cv2.addWeighted(enhanced, 1.5, blurred, -0.5, 0)
+
+    @staticmethod
+    def _join_text(extracted: list[dict[str, Any]]) -> str:
+        return " ".join(str(item.get("text", "")).strip() for item in extracted if str(item.get("text", "")).strip())
+
+    @staticmethod
+    def _average_confidence(extracted: list[dict[str, Any]]) -> float | None:
+        values = [float(item["confidence"]) for item in extracted if item.get("confidence") is not None]
+        return sum(values) / len(values) if values else None
+
+    @staticmethod
+    def _has_call_number(text: str) -> bool:
+        import re
+
+        return bool(re.search(r"(?<!\d)\d{3}(?:[.,:]\d+)?\s+[^\s]*\d+", text))
+
+    @classmethod
+    def _candidate_score(cls, extracted: list[dict[str, Any]]) -> tuple[int, float, int]:
+        text = cls._join_text(extracted)
+        confidence = cls._average_confidence(extracted) or 0.0
+        return (1 if cls._has_call_number(text) else 0, confidence, len(text))
+
+    @staticmethod
+    def _offset_results(extracted: list[dict[str, Any]], offset_x: int, offset_y: int) -> list[dict[str, Any]]:
+        if not offset_x and not offset_y:
+            return extracted
+        adjusted = []
+        for item in extracted:
+            copied = dict(item)
+            copied["bbox"] = [
+                [float(point[0]) + offset_x, float(point[1]) + offset_y]
+                for point in item.get("bbox", [])
+            ]
+            adjusted.append(copied)
+        return adjusted
 
     @staticmethod
     def _rectify_obb(image: np.ndarray, polygon: list[list[float]]) -> np.ndarray:

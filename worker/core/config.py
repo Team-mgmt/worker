@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     OBB_CROP_PADDING_RATIO: float = 0.015
     OBB_CROP_MIN_WIDTH: int = 256
     OBB_CROP_MAX_EDGE: int = 3000
+    OCR_LABEL_REGION_RATIO: float = 0.35
+    OCR_FALLBACK_CONFIDENCE: float = 0.78
+    OCR_ENABLE_ADAPTIVE_FALLBACK: bool = True
+    OCR_MAX_FALLBACK_VARIANTS: int = 3
     
     @property
     def async_database_url(self) -> str:

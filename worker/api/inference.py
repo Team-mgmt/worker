@@ -175,6 +175,10 @@ async def analyze_yolo(
                 obb_polygon=detection.polygon,
                 crop_method=crop_metadata.method if crop_metadata else None,
                 crop_size=crop_metadata.size if crop_metadata else None,
+                ocr_variant=crop_metadata.ocr_variant if crop_metadata else None,
+                ocr_attempt_count=crop_metadata.attempt_count if crop_metadata else None,
+                ocr_label_text=crop_metadata.label_text if crop_metadata else None,
+                ocr_label_confidence=crop_metadata.label_confidence if crop_metadata else None,
             )
         )
 
@@ -328,6 +332,10 @@ async def analyze_vision(
                 obb_polygon=detection.polygon,
                 crop_method=crop_metadata.method if crop_metadata else None,
                 crop_size=crop_metadata.size if crop_metadata else None,
+                ocr_variant=crop_metadata.ocr_variant if crop_metadata else None,
+                ocr_attempt_count=crop_metadata.attempt_count if crop_metadata else None,
+                ocr_label_text=crop_metadata.label_text if crop_metadata else None,
+                ocr_label_confidence=crop_metadata.label_confidence if crop_metadata else None,
             )
         )
 
