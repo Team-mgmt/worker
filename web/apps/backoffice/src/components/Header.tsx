@@ -34,6 +34,9 @@ export function Header() {
           <Link to="/shelf-ops" activeProps={{ className: "font-bold" }}>
             서가 검수
           </Link>
+          <Link to="/video-analysis" activeProps={{ className: "font-bold" }}>
+            동영상 분석
+          </Link>
           <Link to="/evaluation" activeProps={{ className: "font-bold" }}>
             GT 라벨 검수
           </Link>

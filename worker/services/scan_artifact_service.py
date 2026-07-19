@@ -229,6 +229,73 @@ class ScanArtifactService:
             )
         return prefix
 
+    async def save_video(
+        self,
+        *,
+        run_id: str,
+        video_path: Path,
+        library_code: str,
+        room_name: str | None,
+        frame_candidates: list[dict[str, Any]],
+        selected_frame_path: Path,
+        analysis: MatchResponse,
+        timings: dict[str, float],
+    ) -> str | None:
+        if not self.enabled:
+            return None
+
+        created_at = datetime.now(UTC)
+        root = settings.VIDEO_ARTIFACTS_PREFIX.strip("/")
+        prefix = "/".join(
+            (
+                root,
+                safe_key_part(library_code),
+                created_at.strftime("%Y/%m/%d"),
+                safe_key_part(run_id),
+            )
+        )
+        video_suffix = video_path.suffix.lower() or ".mp4"
+        original_key = f"{prefix}/original{video_suffix}"
+        selected_key = f"{prefix}/selected/best.jpg"
+
+        session = aioboto3.Session()
+        async with session.client("s3", region_name=settings.AWS_REGION) as client:
+            await self._put_bytes(client, original_key, video_path.read_bytes(), self._content_type(video_suffix))
+            await self._put_bytes(client, selected_key, selected_frame_path.read_bytes(), "image/jpeg")
+
+            frame_keys: list[str] = []
+            for frame in frame_candidates:
+                frame_path = Path(str(frame["path"]))
+                frame_key = f"{prefix}/frames/{frame_path.name}"
+                await self._put_bytes(client, frame_key, frame_path.read_bytes(), "image/jpeg")
+                frame_keys.append(frame_key)
+
+            payload = {
+                "schema_version": "1.0",
+                "run_id": run_id,
+                "created_at": created_at.isoformat(),
+                "library": {"code": library_code, "room_name": room_name},
+                "artifacts": {
+                    "original_key": original_key,
+                    "selected_frame_key": selected_key,
+                    "frame_keys": frame_keys,
+                    "image_analysis_prefix": analysis.artifact_prefix,
+                },
+                "frame_candidates": [
+                    {key: value for key, value in frame.items() if key != "path"}
+                    for frame in frame_candidates
+                ],
+                "timings_seconds": timings,
+                "analysis": analysis.model_dump(mode="json"),
+            }
+            await self._put_bytes(
+                client,
+                f"{prefix}/result.json",
+                json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+        return prefix
+
     async def _put_bytes(self, client: Any, key: str, body: bytes, content_type: str) -> None:
         await client.put_object(
             Bucket=settings.S3_BUCKET_NAME,
@@ -250,6 +317,10 @@ class ScanArtifactService:
             ".jpeg": "image/jpeg",
             ".png": "image/png",
             ".webp": "image/webp",
+            ".mp4": "video/mp4",
+            ".mov": "video/quicktime",
+            ".m4v": "video/x-m4v",
+            ".webm": "video/webm",
         }.get(suffix, "application/octet-stream")
 
     @staticmethod

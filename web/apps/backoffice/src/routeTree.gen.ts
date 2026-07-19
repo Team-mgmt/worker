@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as ScanIndexRouteImport } from './routes/scan/index'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AuthSigninIndexRouteImport } from './routes/auth/signin/index'
+import { Route as AppVideoAnalysisIndexRouteImport } from './routes/_app/video-analysis/index'
 import { Route as AppShelfOpsIndexRouteImport } from './routes/_app/shelf-ops/index'
 import { Route as AppProvidersIndexRouteImport } from './routes/_app/providers/index'
 import { Route as AppOrganizationsIndexRouteImport } from './routes/_app/organizations/index'
@@ -42,6 +43,11 @@ const AuthSigninIndexRoute = AuthSigninIndexRouteImport.update({
   id: '/auth/signin/',
   path: '/auth/signin/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppVideoAnalysisIndexRoute = AppVideoAnalysisIndexRouteImport.update({
+  id: '/video-analysis/',
+  path: '/video-analysis/',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppShelfOpsIndexRoute = AppShelfOpsIndexRouteImport.update({
   id: '/shelf-ops/',
@@ -105,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/organizations/': typeof AppOrganizationsIndexRoute
   '/providers/': typeof AppProvidersIndexRoute
   '/shelf-ops/': typeof AppShelfOpsIndexRoute
+  '/video-analysis/': typeof AppVideoAnalysisIndexRoute
   '/auth/signin/': typeof AuthSigninIndexRoute
   '/organizations/$organizationId/edit': typeof AppOrganizationsOrganizationIdEditRoute
   '/documents/$slug/': typeof AppDocumentsSlugIndexRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/organizations': typeof AppOrganizationsIndexRoute
   '/providers': typeof AppProvidersIndexRoute
   '/shelf-ops': typeof AppShelfOpsIndexRoute
+  '/video-analysis': typeof AppVideoAnalysisIndexRoute
   '/auth/signin': typeof AuthSigninIndexRoute
   '/organizations/$organizationId/edit': typeof AppOrganizationsOrganizationIdEditRoute
   '/documents/$slug': typeof AppDocumentsSlugIndexRoute
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/_app/organizations/': typeof AppOrganizationsIndexRoute
   '/_app/providers/': typeof AppProvidersIndexRoute
   '/_app/shelf-ops/': typeof AppShelfOpsIndexRoute
+  '/_app/video-analysis/': typeof AppVideoAnalysisIndexRoute
   '/auth/signin/': typeof AuthSigninIndexRoute
   '/_app/organizations/$organizationId/edit': typeof AppOrganizationsOrganizationIdEditRoute
   '/_app/documents/$slug/': typeof AppDocumentsSlugIndexRoute
@@ -154,6 +163,7 @@ export interface FileRouteTypes {
     | '/organizations/'
     | '/providers/'
     | '/shelf-ops/'
+    | '/video-analysis/'
     | '/auth/signin/'
     | '/organizations/$organizationId/edit'
     | '/documents/$slug/'
@@ -169,6 +179,7 @@ export interface FileRouteTypes {
     | '/organizations'
     | '/providers'
     | '/shelf-ops'
+    | '/video-analysis'
     | '/auth/signin'
     | '/organizations/$organizationId/edit'
     | '/documents/$slug'
@@ -185,6 +196,7 @@ export interface FileRouteTypes {
     | '/_app/organizations/'
     | '/_app/providers/'
     | '/_app/shelf-ops/'
+    | '/_app/video-analysis/'
     | '/auth/signin/'
     | '/_app/organizations/$organizationId/edit'
     | '/_app/documents/$slug/'
@@ -227,6 +239,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/auth/signin/'
       preLoaderRoute: typeof AuthSigninIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/video-analysis/': {
+      id: '/_app/video-analysis/'
+      path: '/video-analysis'
+      fullPath: '/video-analysis/'
+      preLoaderRoute: typeof AppVideoAnalysisIndexRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/shelf-ops/': {
       id: '/_app/shelf-ops/'
@@ -309,6 +328,7 @@ interface AppRouteChildren {
   AppOrganizationsIndexRoute: typeof AppOrganizationsIndexRoute
   AppProvidersIndexRoute: typeof AppProvidersIndexRoute
   AppShelfOpsIndexRoute: typeof AppShelfOpsIndexRoute
+  AppVideoAnalysisIndexRoute: typeof AppVideoAnalysisIndexRoute
   AppOrganizationsOrganizationIdEditRoute: typeof AppOrganizationsOrganizationIdEditRoute
   AppDocumentsSlugIndexRoute: typeof AppDocumentsSlugIndexRoute
   AppDocumentsCreateIndexRoute: typeof AppDocumentsCreateIndexRoute
@@ -323,6 +343,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppOrganizationsIndexRoute: AppOrganizationsIndexRoute,
   AppProvidersIndexRoute: AppProvidersIndexRoute,
   AppShelfOpsIndexRoute: AppShelfOpsIndexRoute,
+  AppVideoAnalysisIndexRoute: AppVideoAnalysisIndexRoute,
   AppOrganizationsOrganizationIdEditRoute:
     AppOrganizationsOrganizationIdEditRoute,
   AppDocumentsSlugIndexRoute: AppDocumentsSlugIndexRoute,

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str = ""
     SCAN_ARTIFACTS_ENABLED: bool = False
     SCAN_ARTIFACTS_PREFIX: str = "shelfalign/scans"
+    VIDEO_ARTIFACTS_PREFIX: str = "shelfalign/videos"
     SCAN_ARTIFACTS_SAVE_CROPS: bool = True
     OBB_CROP_PADDING_RATIO: float = 0.015
     OBB_CROP_MIN_WIDTH: int = 256

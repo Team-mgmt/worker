@@ -70,3 +70,28 @@ class MatchResponse(BaseModel):
     results: List[DetectionResult]
     artifact_run_id: Optional[str] = None
     artifact_prefix: Optional[str] = None
+
+
+class VideoFrameQuality(BaseModel):
+    frame_index: int
+    timestamp_seconds: float
+    width: int
+    height: int
+    sharpness: float
+    brightness: float
+    contrast: float
+    quality_score: float
+    selected: bool = False
+
+
+class VideoAnalysisResponse(BaseModel):
+    video_run_id: str
+    source_name: str
+    duration_seconds: float
+    sample_interval_seconds: float
+    frame_candidates: List[VideoFrameQuality]
+    selected_frame_data_url: str
+    frame_selection_seconds: float
+    total_seconds: float
+    analysis: MatchResponse
+    artifact_prefix: Optional[str] = None

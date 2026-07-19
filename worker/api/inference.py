@@ -1,4 +1,6 @@
 import json
+import base64
+from io import BytesIO
 import os
 import re
 import time
@@ -10,13 +12,15 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from worker.core.database import get_db
-from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest
+from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest, VideoAnalysisResponse, VideoFrameQuality
 from worker.services.detection_service import SpineDetection, detector_service
 from worker.services.inference_service import process_scan_session_request
 from worker.services.ocr_field_parser import extract_ocr_fields
 from worker.services.scan_artifact_service import scan_artifact_service
 
 router = APIRouter(prefix="/inference", tags=["Inference"])
+
+MAX_VIDEO_BYTES = 100 * 1024 * 1024
 
 TEST_IMAGES_DIR = Path(__file__).resolve().parents[1] / "tests" / "test_images"
 BBOXES_JSON = Path(__file__).resolve().parents[1] / "tests" / "bboxes.json"
@@ -372,6 +376,130 @@ async def analyze_vision(
     except Exception as exc:
         analyze_log(f"[analyze_vision] artifact save failed; continuing without S3: {exc}")
     return response
+
+
+@router.post("/analyze_video", response_model=VideoAnalysisResponse)
+async def analyze_video(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    library_code: str = "111058",
+    room_name: str = "노원중앙도서관 종합자료실",
+    sample_interval_seconds: float = 1.0,
+):
+    request_started_at = time.perf_counter()
+    video_run_id = str(uuid4())
+    filename = file.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="Uploaded video must have a filename.")
+    if not 0.5 <= sample_interval_seconds <= 2.0:
+        raise HTTPException(status_code=400, detail="프레임 추출 간격은 0.5~2초여야 합니다.")
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".mp4", ".mov", ".m4v", ".webm"}:
+        raise HTTPException(status_code=400, detail="MP4, MOV, M4V, WEBM 동영상만 지원합니다.")
+
+    video_dir = Path("outputs/videos") / video_run_id
+    video_dir.mkdir(parents=True, exist_ok=True)
+    video_path = video_dir / f"original{suffix}"
+    size = 0
+    with video_path.open("wb") as destination:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_VIDEO_BYTES:
+                destination.close()
+                video_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="동영상은 100MB 이하여야 합니다.")
+            destination.write(chunk)
+
+    selection_started_at = time.perf_counter()
+    try:
+        from worker.services.video_frame_service import extract_quality_frames
+
+        candidates, duration = extract_quality_frames(
+            video_path,
+            video_dir / "frames",
+            interval_seconds=sample_interval_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    selected = max(candidates, key=lambda candidate: candidate.quality_score)
+    selection_elapsed = time.perf_counter() - selection_started_at
+    analyze_log(
+        f"[analyze_video] selected frame={selected.frame_index} "
+        f"timestamp={selected.timestamp_seconds:.2f}s quality={selected.quality_score:.3f} "
+        f"candidates={len(candidates)}"
+    )
+
+    selected_bytes = selected.path.read_bytes()
+    selected_upload = UploadFile(
+        file=BytesIO(selected_bytes),
+        filename=f"video-{video_run_id}-best.jpg",
+    )
+    analysis = await analyze_vision(
+        file=selected_upload,
+        db=db,
+        library_code=library_code,
+        room_name=room_name,
+        preprocess=False,
+    )
+    frame_payload = [
+        VideoFrameQuality(
+            frame_index=candidate.frame_index,
+            timestamp_seconds=round(candidate.timestamp_seconds, 3),
+            width=candidate.width,
+            height=candidate.height,
+            sharpness=round(candidate.sharpness, 4),
+            brightness=round(candidate.brightness, 4),
+            contrast=round(candidate.contrast, 4),
+            quality_score=round(candidate.quality_score, 4),
+            selected=candidate.frame_index == selected.frame_index,
+        )
+        for candidate in candidates
+    ]
+    artifact_prefix = None
+    try:
+        artifact_prefix = await scan_artifact_service.save_video(
+            run_id=video_run_id,
+            video_path=video_path,
+            library_code=library_code,
+            room_name=room_name,
+            frame_candidates=[
+                {
+                    "frame_index": candidate.frame_index,
+                    "timestamp_seconds": round(candidate.timestamp_seconds, 3),
+                    "width": candidate.width,
+                    "height": candidate.height,
+                    "sharpness": round(candidate.sharpness, 4),
+                    "brightness": round(candidate.brightness, 4),
+                    "contrast": round(candidate.contrast, 4),
+                    "quality_score": round(candidate.quality_score, 4),
+                    "selected": candidate.frame_index == selected.frame_index,
+                    "path": str(candidate.path),
+                }
+                for candidate in candidates
+            ],
+            selected_frame_path=selected.path,
+            analysis=analysis,
+            timings={
+                "frame_selection": round(selection_elapsed, 4),
+                "total": round(time.perf_counter() - request_started_at, 4),
+            },
+        )
+    except Exception as exc:
+        analyze_log(f"[analyze_video] artifact save failed; continuing without S3: {exc}")
+    return VideoAnalysisResponse(
+        video_run_id=video_run_id,
+        source_name=Path(filename).name,
+        duration_seconds=round(duration, 3),
+        sample_interval_seconds=sample_interval_seconds,
+        frame_candidates=frame_payload,
+        selected_frame_data_url=f"data:image/jpeg;base64,{base64.b64encode(selected_bytes).decode('ascii')}",
+        frame_selection_seconds=round(selection_elapsed, 4),
+        total_seconds=round(time.perf_counter() - request_started_at, 4),
+        analysis=analysis,
+        artifact_prefix=artifact_prefix,
+    )
 
 
 def bbox_to_pixels(bbox: list[float], image_width: int, image_height: int) -> list[float]:

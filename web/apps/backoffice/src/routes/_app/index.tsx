@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 
 import {
   DatabaseIcon,
+  FilmIcon,
   ImageUpIcon,
   SearchCheckIcon,
 } from "lucide-react";
@@ -19,6 +20,12 @@ const ACTIONS = [
     description: "서가 이미지, 책등 BBox, OCR, DB 매칭, 오배열 판정을 한 화면에서 검수합니다.",
     to: "/shelf-ops",
     icon: ImageUpIcon,
+  },
+  {
+    title: "동영상 서가 분석",
+    description: "짧은 서가 영상에서 선명한 프레임을 선택하고 책등 OCR과 DB 매칭을 실행합니다.",
+    to: "/video-analysis",
+    icon: FilmIcon,
   },
   {
     title: "도서 데이터셋",
@@ -46,7 +53,7 @@ function RouteComponent() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
           {ACTIONS.map((action) => {
             const Icon = action.icon;
 
