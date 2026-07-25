@@ -1,41 +1,116 @@
-# ShelfAlign Worker
+# ShelfAlign AI
 
-FastAPI worker for ShelfAlign library shelf analysis.
+**"흐트러진 서가를, 흐트러지기 전에."**
+2026 도서관 데이터 활용 공모전 출품작 — 스마트폰 카메라와 AI로 도서관 서가의 오배열을 자동 탐지하고, 이용자의 도서 탐색을 돕는 서비스입니다.
 
-## Responsibilities
+---
 
-- Analyze shelf photos with a VLM and return book-spine candidates.
-- Optionally run local OCR fallback for selected spines.
-- Match OCR/title/call-number evidence against the library catalog tables.
-- Sync catalog records from Data4Library for target libraries.
+## 1. 문제 정의 — 우리가 주목한 지점
 
-## Local Run
+도서관 현장에서 반복적으로 발생하지만, 지금까지는 사람의 눈과 시간으로만 해결해온 두 가지 문제가 있습니다.
 
-```bash
-uv venv
-uv pip install -r requirements.txt
-python -m fastapi dev worker/api/server.py --host 0.0.0.0 --port 8000
+1. **서가 오배열은 발견하기 전까지 존재를 알 수 없다.**
+   KDC 분류 순서를 벗어난 책 한 권은 그 책 자체를 찾을 수 없게 만드는 것은 물론, 주변 책들의 신뢰도까지 떨어뜨립니다. 그런데 현재는 사서가 서가를 눈으로 훑으며 점검하는 방식이 사실상 유일한 대응 수단이라, 인력과 시간이 한정된 만큼 점검 주기가 길어지고 오배열이 방치되는 기간도 길어집니다.
+2. **이용자는 OPAC에서 책을 찾았어도, 서가 앞에서 다시 길을 잃는다.**
+   도서관마다 있는 도서 검색 기기인 OPAC은 책의 '존재'와 '청구기호'를 알려주지만, 그 책이 지금 실제로 그 자리에 '있는지'는 알려주지 않습니다. 대출 중이 아닌데도 오배열이나 정리 미비로 책이 안 보이면, 이용자는 사서에게 문의하거나 포기하게 됩니다.
+
+두 문제는 사실 하나의 원인(서가 상태와 카탈로그 정보의 불일치)에서 비롯됩니다. 저희는 **"사진 한 장으로 서가 상태를 카탈로그와 즉시 대조한다"**는 단일한 접근으로 두 문제를 함께 풀 수 있다고 판단했습니다.
+
+## 2. 우리의 인사이트
+
+- **점검을 '전수 조사'가 아니라 '상시 센싱'으로 바꾼다.** 사서가 정기적으로 전체 서가를 일일이 확인하는 대신, 짧은 촬영만으로 AI가 1차 스크리닝을 하고, 사서는 최종 판단(확인/기각)만 담당하도록 역할을 재배치했습니다. 이는 점검 빈도를 늘리면서도 사서의 판단 부담은 늘리지 않는 방향입니다.
+- **완전 자동화보다 '신뢰도 기반 보조'가 현실적이다.** 오배열 판정을 AI가 최종 확정하지 않고, 신뢰도(Confidence)와 후보를 제시한 뒤 사서가 확인/기각하는 human-in-the-loop 구조를 택했습니다. 현장 데이터가 아직 충분히 검증되지 않은 공모전 단계에서, 오탐으로 인한 신뢰 붕괴를 막기 위한 선택입니다.
+- **이용자 기능은 '실시간 위치추적'이 아니라 '단일 도서 매칭 보조'로 범위를 좁혔다.** 정밀 실내 측위는 별도의 인프라(비콘 등)가 필요해 도입 장벽이 높습니다. 대신 이용자가 촬영한 화면 내에서 목표 도서와의 유사도만 판정하는 가벼운 방식을 택해, 별도 설비 없이 기존 스마트폰만으로 즉시 활용 가능하게 했습니다.
+- **공공 데이터(정보나루 Data4Library)를 연동 지점으로 삼는다.** 도서관마다 자체 시스템이 다르더라도, 정보나루 API로 장서 카탈로그를 동기화하면 신규 도서관에 서비스를 확장할 때 별도의 데이터 이관 없이 `libCode` 입력만으로 온보딩할 수 있습니다. 이는 공모전 취지인 '공공 도서관 데이터 활용'과도 직접 맞닿아 있는 부분입니다.
+
+## 3. 기능별 목적
+
+| 기능 | 무엇을 하는가 | 왜 만들었는가 |
+|---|---|---|
+| **서가 촬영 → AI 검출 (사서 모드)** | 스마트폰으로 서가를 훑으며 촬영하면 YOLO 기반 모델이 책등(spine)을 검출하고, OCR/VLM으로 제목·청구기호를 읽어 KDC 순서 위반 후보를 뽑는다 | 전수 육안 점검을 대체할 '빠른 1차 스크리닝' 수단이 필요했다. 촬영 각도 가이드 UI를 넣은 것도 인식률이 곧 오탐/미탐률과 직결되기 때문이다 |
+| **인식 결과 확인/기각 (사서 모드)** | AI가 제시한 오배열 후보를 사서가 신뢰도와 함께 확인하고, 확인/기각 처리 | AI 판정을 그대로 최종값으로 쓰지 않고 사람이 검수하게 함으로써, 초기 모델 정확도가 완벽하지 않아도 서비스를 안전하게 운영할 수 있게 했다 |
+| **ShelfOps 대시보드** | 점검 이력, 오배열 후보 수, 사서 확인율, 반복 오배열 KDC 구간 히트맵, 점검 우선순위 추천을 한눈에 제공 | 개별 점검 결과가 쌓여도 '어느 서가를 먼저 봐야 하는지' 의사결정으로 이어지지 않으면 의미가 없다. 반복 발생 구간을 시각화해 운영 우선순위를 정량적으로 뒷받침한다 |
+| **도서관 설정 (정보나루 연동)** | 관리자가 도서관 코드(`libCode`)를 입력해 정보나루 장서 DB와 동기화 | 도서관마다 제각각인 내부 시스템 대신 공공 데이터 API를 표준 연동점으로 삼아, 새로운 도서관으로의 확장 비용을 낮췄다 |
+| **도서 탐색 설정 (이용자 모드)** | 이용자가 찾는 책의 서명/저자/청구기호/ISBN 중 하나 이상을 입력 | 이용자가 이미 OPAC에서 확보했을 법한 정보만으로 탐색이 시작되도록 해, 별도 학습 없이 바로 쓸 수 있게 했다 |
+| **서가 촬영 → 유사 후보 탐지 (이용자 모드)** | 입력한 책 정보를 기준으로 촬영 화면 내 유사 후보 위치를 안내 ("우측 하단에 감지됨" 등) | 실내 정밀 측위 없이도 "이 근처를 다시 보라"는 힌트만으로 이용자의 탐색 시간을 줄일 수 있다는 가설을 검증하기 위한 최소 기능(MVP)이다 |
+
+## 4. 기대 효과
+
+- **사서**: 전체 서가를 매번 눈으로 확인하지 않아도, 반복적으로 오배열이 발생하는 구간을 우선순위화해 점검할 수 있다.
+- **이용자**: 서가 앞에서 책을 못 찾아 헤매는 시간을 줄이고, 사서에게 문의하기 전에 스스로 한 번 더 확인할 수 있는 수단을 갖는다.
+- **도서관 운영**: 오배열 발생 패턴(KDC 구간별 히트맵)이 데이터로 축적되면, 서가 배치나 안내 표지 개선 등 장기적인 운영 개선의 근거로 활용할 수 있다.
+
+## 5. 시스템 구성 (기술 요약)
+
+서비스는 **web**(프론트엔드 + API)과 **worker**(AI 파이프라인) 두 레포로 분리되어 있습니다.
+
+```
+[ Client (web) ]                          [ Server (worker) ]
+사서/이용자 모바일 스캔 앱   --이미지/영상-->   AI 파이프라인 (YOLO 검출 + OCR/VLM)
+ShelfOps 대시보드          <--분석/판정 결과-- 도서관 장서 DB 매칭 (PostgreSQL, 정보나루 동기화)
 ```
 
-Health check:
+| 영역 | 구성 | 스택 |
+|---|---|---|
+| `web/apps/backend` | 인증, 업로드, 조직/공급자/도서관 운영 API | NestJS 11 |
+| `web/apps/backoffice` | ShelfOps 대시보드 | React 19, Vite 7, Tanstack Router/Query, Tailwind 4 |
+| `web/packages/database`, `schema` | 공용 Prisma 스키마 / Zod DTO | Prisma 6, Zod 4 |
+| `worker/worker/services` | 서가 인식·매칭·카탈로그 동기화 로직 | FastAPI, YOLO, VLM(gpt-4o-mini), PaddleOCR(옵션) |
+| DB | 장서·점검 이력 저장 | PostgreSQL (web은 Prisma, worker는 Alembic으로 마이그레이션 관리) |
 
-```bash
-curl http://localhost:8000/health
-```
+> 세부 실행 방법, 환경 변수, 코드 컨벤션은 각 레포의 `web/README.md`, `worker/README.md`를 참고하세요. 이 문서는 "왜 이렇게 만들었는가"에 초점을 둔 공모전 소개 문서입니다.
 
-Main endpoint:
+## 6. 기술 구현 상세
 
-```text
-POST /inference/analyze_vlm
-```
+### 책등 검출 모델 (YOLO)
 
-## Environment
+[Roboflow의 `book-spine-instance-segmentation`](https://universe.roboflow.com/harald-varner-xv5u7/book-spine-instance-segmentation) 공개 데이터셋을 베이스로, Ultralytics **YOLOv8n**을 책등(spine) 단일 클래스(`book_spine`)로 파인튜닝했습니다(`worker/worker/scripts/train_yolo.py`, `worker/worker/datasets/book_spines.yaml`). OBB(회전 바운딩박스)를 지원하는 모델이라, 기울어진 각도로 촬영된 책등도 사각형이 아닌 사변형(polygon)으로 검출한 뒤 `VisionService._rectify_obb`에서 원근 보정(perspective transform)으로 반듯하게 펴서 다음 OCR 단계로 넘깁니다. 학습된 가중치는 `worker/worker/models/book_spine_run/weights/best.pt`에 저장되어 있고, 서비스 기동 시 `BookSpineDetector`(`worker/worker/services/detection_service.py`)가 이를 로드해 추론에 사용합니다. 자체 촬영 영상에서 프레임을 추출해 라벨링용 데이터를 보강하는 스크립트(`prepare_yolo_dataset.py`)도 갖추고 있어, 이후 실제 서가 데이터로 재학습이 가능한 구조입니다.
 
-```env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
-OPENAI_API_KEY=...
-VLM_MODEL=gpt-4o-mini
-JUNGBO_NARU_API_KEY=...
-```
+### OCR·DB 매칭 알고리즘
 
-`PADDLE_FALLBACK_MAX_SPINES` defaults to `0`; set it only when PaddleOCR is installed and you want per-spine OCR fallback.
+1. **OCR**: 검출된 책등 crop을 한국어 모델(`PP-OCRv5`)의 **PaddleOCR**로 1차 인식합니다. 신뢰도가 낮거나 청구기호 패턴이 안 잡히면 CLAHE 대비 보정, 90°/270° 회전 등 여러 변형 이미지를 추가로 OCR한 뒤 가장 점수가 높은 결과를 채택하는 **적응형(adaptive) 멀티패스 OCR**을 적용합니다(`VisionService._adaptive_ocr`).
+2. **필드 파싱**: 정규식 기반으로 OCR 원문에서 청구기호(KDC 분류기호+저자기호), 서명, 저자를 분리합니다(`worker/worker/services/ocr_field_parser.py`). 예를 들어 `813.6 김26ㅅ` 형태의 청구기호 패턴과 `~지음/~글/~저` 같은 저자 표기 패턴을 별도로 인식합니다.
+3. **DB 매칭**: 파싱된 청구기호/서명/저자를 PostgreSQL의 실제 카탈로그(`LibraryHolding`/`LibraryBook`, web 레포의 Prisma 테이블)와 대조합니다(`worker/worker/services/matching_service.py`). **RapidFuzz**의 토큰 정렬 유사도(`token_sort_ratio`)로 후보별 점수를 계산하고, 청구기호 정보가 있으면 "청구기호 점수(분류기호 55% + 저자기호 45%)"를, 없으면 "서지 정보 점수(서명 80% + 저자 20%)"를 가중 결합해 최종 매칭 점수를 산출합니다.
+4. **오배열 판정**: 매칭 점수·후보 간 점수 격차(margin)·주변 서가의 지배적 KDC 구간(신뢰도 70% 이상일 때만 채택)을 함께 봐서 `normal`(정상) / `suspected_misplacement`(오배열 의심) / `needs_review`(수동 검수 필요) / `unmatched`(미매칭)로 4단계 분류합니다(`evaluate_misplacement`). 점수가 애매한 경계 케이스는 AI가 단정하지 않고 `needs_review`로 넘겨 사서 검수를 유도하는 것이 핵심 설계 원칙입니다.
+
+### DB 구조
+
+- **운영 카탈로그(web, Prisma)**: `LibraryBook`(서지: 서명·저자·출판사·ISBN 등) — `LibraryHolding`(소장: 청구기호·서가위치·복본코드 등, `libraryCode`로 도서관 구분) 1:N 구조. 매칭 서비스가 실제로 조회하는 프로덕션 테이블입니다.
+- **워커 자체 스키마(worker, SQLAlchemy/Alembic)**: `Book`/`Holding`이 카탈로그를, `ScanSession`(촬영 세션·추정 서가 구간)과 `Detection`(개별 검출 결과: bbox, OCR 텍스트, 매칭 점수, 상위 후보, 최종 판정 상태)이 점검 이력을 저장합니다. `holdings.library_code` 값만 추가하면 스키마 변경 없이 새 도서관을 온보딩할 수 있도록 설계했습니다(`worker/docs/catalog-erd.md`).
+- 청구기호는 원본 컬럼의 결측률이 매우 높아(§선정 근거 조사 기준 약 98%) 그대로 쓸 수 없었고, KDC 분류기호(`classNo`)와 저자기호(`bookCode`)를 조합해 재계산하는 방식으로 정규화했습니다.
+
+### MVP 대상 도서관
+
+- **1차 MVP: 노원중앙도서관** (정보나루 `libCode=111058`) — 우선 대상 공간은 `종합자료실`, 우선 적재/검수 범위는 한국문학 KDC `810–819` 구간으로 스코프를 좁혀 시작했습니다.
+- **확장 후보: 도봉아이나라도서관** (`libCode=111189`) — 정보나루 실데이터(10만 건 규모) EDA를 근거로 선정을 검토했습니다. KDC 문학 비중 56.9%로 표지가 비슷한 책이 밀집해 육안 구분이 어렵고, 청구기호 원본 데이터 결측률이 98%에 달해 자체 메타데이터 정리가 약하다는 점, 유아 전용 구역이 전체 소장량의 약 22%를 차지해 오배열 위험이 구조적으로 높다는 점을 근거로 들었습니다(`worker/docs/dobong-ainara-selection-rationale.md`).
+- 두 도서관 모두 `holdings.library_code`만 다르게 두면 되므로, 동일한 스키마와 매칭 로직을 그대로 재사용합니다.
+
+### AWS 기반 인프라
+
+- **배포**: EC2 인스턴스에 **AWS CodeDeploy**(`appspec.yml`)로 무중단 배포하며, `ApplicationStop → BeforeInstall → AfterInstall → ApplicationStart → ValidateService` 훅 스크립트로 배포 단계를 관리합니다. 서비스 앞단은 **Nginx**(`worker/deploy/nginx`)가 리버스 프록시로 붙습니다.
+- **컨테이너**: Docker 멀티스테이지 빌드로 wheel을 미리 빌드해 이미지 크기를 줄였고, 런타임 이미지에 **AWS CLI v2**와 **RDS(PostgreSQL) CA 인증서 번들**을 내장해 RDS와의 TLS 연결을 기본 지원합니다.
+- **스토리지**: 촬영 원본/어노테이션 이미지/책등 crop/판정 결과(`result.json`)를 **S3**에 세션 단위로 저장합니다(`worker/docs/scan-artifact-storage.md`). 액세스 키 대신 **EC2 IAM Role**로 최소 권한(`GetObject`/`PutObject`/`ListBucket`, 특정 prefix로 제한)만 부여하는 방식을 채택했고, S3에 쌓인 검수 완료 데이터(`ground-truth.json`)는 이후 YOLO 재학습 데이터셋으로도 재사용 가능하도록 설계했습니다.
+- **DB**: PostgreSQL을 **AWS RDS**로 운영하는 것을 전제로 CA 번들을 이미지에 포함했습니다.
+
+## 7. 향후 계획 (Roadmap)
+
+현재는 단일 이미지 촬영 기반으로 동작하지만, 아래 방향으로 고도화를 계획하고 있습니다.
+
+### 동영상 기반 촬영/분석으로 전환
+
+단일 이미지를 개별 촬영하는 대신, 서가를 훑는 **영상**을 입력받아 프레임 단위로 연속 분석하는 방식으로 전환할 예정입니다. 촬영자가 사진 구도를 신경 쓰지 않아도 되고 연속성이 생기며 현장 사용성이 크게 개선되고, 연속된 프레임을 대조하면 단일 사진보다 검출 누락(미탐)을 줄일 수 있다는 판단입니다. (`worker/worker/services/video_frame_service.py`에 프레임 추출 로직의 초기 기반이 이미 마련되어 있습니다.)
+
+### 사서 의사결정 지원 대시보드 (고급 분석)
+
+지금의 ShelfOps 대시보드가 '점검 결과 확인'에 초점을 맞췄다면, 다음 단계에서는 점검 이력이 쌓인 데이터를 바탕으로 **사서의 운영 의사결정을 직접 지원**하는 분석 기능을 추가할 계획입니다.
+
+- **서가별 오배열 발생 빈도** — 어떤 서가/구역에서 오배열이 반복적으로 발생하는지 랭킹으로 제공해, 상시 점검이 필요한 '문제 서가'를 특정
+- **시간대별 오배열 발생 추이** — 언제(개관 직후/혼잡 시간대 등) 오배열이 몰려서 발생하는지를 시계열로 보여줘, 점검 타이밍을 데이터 기반으로 설계
+- **KDC 구간별 집중 발생 분석** — 특정 분류 구간(KDC)에서 오배열이 유독 집중되는지 식별해, 해당 구간의 서가 배치·표지판 개선 등 근본 원인 대응으로 연결
+- **직원 배치 추천** — 위 지표들을 종합해 다음 점검 주기에 사서를 우선 투입해야 할 서가/시간대를 추천, 한정된 인력을 가장 효율적으로 배분
+
+이 기능들은 결국 '오배열을 잡아내는 도구'에서 '오배열이 왜, 어디서, 언제 발생하는지 설명하고 대응을 제안하는 도구'로 서비스를 확장하는 방향입니다.
+
+## 8. 팀 정보
+
+ShelfAlign 팀은 2026 도서관 데이터 활용 공모전을 위해 구성되었습니다.
