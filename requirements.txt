@@ -1,6 +1,6 @@
 # Runtime dependencies for local pip-based setup.
 # Keep this file in sync with [project].dependencies in pyproject.toml.
-sqlalchemy[asyncio]>=2.0.41
+sqlalchemy[asyncio]>=2.0.51
 pydantic>=2.12.5
 python-dotenv>=1.2.1
 opencv-contrib-python-headless>=4.12.0.88
