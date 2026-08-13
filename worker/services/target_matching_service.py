@@ -12,6 +12,8 @@ from worker.services.matching_service import split_call_number
 FOUND_SCORE = 82.0
 POSSIBLE_SCORE = 65.0
 MIN_FOUND_MARGIN = 10.0
+EARLY_STOP_SCORE = 90.0
+EARLY_STOP_FIELD_SCORE = 90.0
 HANGUL_BASE = 0xAC00
 HANGUL_END = 0xD7A3
 COMPATIBILITY_INITIALS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
@@ -129,3 +131,16 @@ def find_target_book(target: TargetBook, ocr_results: list[OCRResultItem]) -> Ta
         candidate_detections=detections[:2] if status == "possible" else ([best] if best and status == "found" else []),
         detections=detections,
     )
+
+
+def is_confident_early_match(response: TargetBookSearchResponse, latest_order: int) -> bool:
+    """Return true only when the latest OCR result is safe to accept immediately."""
+
+    best = response.best_detection
+    if response.status != "found" or best is None or best.detected_order != latest_order:
+        return False
+    if best.score < EARLY_STOP_SCORE or best.title_score < EARLY_STOP_FIELD_SCORE:
+        return False
+    if response.target.call_number and best.call_number_score < EARLY_STOP_FIELD_SCORE:
+        return False
+    return best.call_number_suffix_match is not False

@@ -1,4 +1,8 @@
-import { buildLibraryBookSearchWhere } from "./library-books.service";
+import {
+  AdminLibraryBooksService,
+  buildLibraryBookCountCacheKey,
+  buildLibraryBookSearchWhere,
+} from "./library-books.service";
 
 describe("buildLibraryBookSearchWhere", () => {
   it("searches normalized bibliographic fields for a plain text query", () => {
@@ -29,5 +33,27 @@ describe("buildLibraryBookSearchWhere", () => {
 
   it("returns no search filter for a blank query", () => {
     expect(buildLibraryBookSearchWhere("   ")).toBeUndefined();
+  });
+});
+
+describe("AdminLibraryBooksService", () => {
+  it("reuses the exact count while paging through the same search", async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const count = jest.fn().mockResolvedValue(42);
+    const service = new AdminLibraryBooksService({
+      libraryHolding: { findMany, count },
+    } as never);
+
+    await service.list({ libraryCode: "111058", query: "콩가루", page: 1, pageSize: 25 });
+    await service.list({ libraryCode: "111058", query: "콩가루", page: 2, pageSize: 25 });
+
+    expect(findMany).toHaveBeenCalledTimes(2);
+    expect(count).toHaveBeenCalledTimes(1);
+  });
+
+  it("normalizes equivalent count-cache queries", () => {
+    expect(buildLibraryBookCountCacheKey({ libraryCode: "111058", query: "  ＡBC  " })).toBe(
+      buildLibraryBookCountCacheKey({ libraryCode: "111058", query: "abc" }),
+    );
   });
 });

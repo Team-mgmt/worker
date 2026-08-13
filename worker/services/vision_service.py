@@ -85,6 +85,7 @@ class VisionService:
         obb_polygon: list[list[float]] | None = None,
         preprocess: bool = False,
         crop_output_path: str | None = None,
+        adaptive: bool = True,
     ) -> tuple[list[dict[str, Any]], CropMetadata]:
         if self.ocr is None:
             raise RuntimeError("PaddleOCR engine not initialized.")
@@ -125,7 +126,7 @@ class VisionService:
             encoded.tofile(output_path)
             saved_path = str(output_path)
 
-        extracted, diagnostics = self._adaptive_ocr(cropped)
+        extracted, diagnostics = self._adaptive_ocr(cropped, adaptive=adaptive)
         metadata = CropMetadata(
             method=method,
             size=[int(cropped.shape[1]), int(cropped.shape[0])],
@@ -137,27 +138,41 @@ class VisionService:
         )
         return self._offset_results(extracted, x, y), metadata
 
-    def _adaptive_ocr(self, cropped: np.ndarray) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def _adaptive_ocr(
+        self,
+        cropped: np.ndarray,
+        *,
+        adaptive: bool = True,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         candidates: list[tuple[str, list[dict[str, Any]]]] = []
 
         primary = self._run_ocr(cropped)
         candidates.append(("original", primary))
 
-        # Shelf labels contain the strongest matching key. Always inspect the
-        # lower region independently so title text cannot suppress small labels.
-        label_image = self._prepare_label_region(cropped)
-        label_result = self._run_ocr(label_image)
-        label_text = self._join_text(label_result)
-        label_confidence = self._average_confidence(label_result)
-
         primary_text = self._join_text(primary)
         primary_confidence = self._average_confidence(primary) or 0.0
         needs_fallback = (
-            settings.OCR_ENABLE_ADAPTIVE_FALLBACK
+            adaptive
+            and settings.OCR_ENABLE_ADAPTIVE_FALLBACK
             and (primary_confidence < settings.OCR_FALLBACK_CONFIDENCE or not self._has_call_number(primary_text))
         )
 
+        label_result: list[dict[str, Any]] = []
+        label_text = ""
+        label_confidence = None
+        label_attempted = False
+
         if needs_fallback:
+            # The previous implementation ran this second OCR pass for every
+            # spine. Most clear shelf images already expose the call number in
+            # the primary pass, so defer the label-region pass until fallback
+            # evidence is actually needed.
+            label_image = self._prepare_label_region(cropped)
+            label_attempted = True
+            label_result = self._run_ocr(label_image)
+            label_text = self._join_text(label_result)
+            label_confidence = self._average_confidence(label_result)
+
             variants = [
                 ("clahe_sharpen", self._enhance_for_ocr(cropped)),
                 ("rotate_90", cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)),
@@ -174,7 +189,7 @@ class VisionService:
 
         return best, {
             "variant": variant,
-            "attempt_count": len(candidates) + 1,
+            "attempt_count": len(candidates) + (1 if label_attempted else 0),
             "label_text": label_text or None,
             "label_confidence": label_confidence,
         }

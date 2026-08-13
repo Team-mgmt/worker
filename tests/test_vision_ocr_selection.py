@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from worker.services.vision_service import VisionService
 
@@ -28,3 +29,41 @@ def test_label_region_uses_configured_bottom_area_and_upscales() -> None:
 
     assert label.shape[0] == 896
     assert label.shape[1] == 256
+
+
+def test_adaptive_ocr_uses_one_pass_when_primary_has_call_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = VisionService.__new__(VisionService)
+    calls = 0
+
+    def run_ocr(_image: np.ndarray) -> list[dict]:
+        nonlocal calls
+        calls += 1
+        return [ocr_item("콩가루 수사단 813.6 주64ㅋ", 0.95)]
+
+    monkeypatch.setattr(service, "_run_ocr", run_ocr)
+    extracted, diagnostics = service._adaptive_ocr(np.zeros((100, 30, 3), dtype=np.uint8))
+
+    assert calls == 1
+    assert diagnostics["attempt_count"] == 1
+    assert diagnostics["variant"] == "original"
+    assert extracted[0]["text"].startswith("콩가루")
+
+
+def test_fast_ocr_never_runs_label_or_fallback_variants(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = VisionService.__new__(VisionService)
+    calls = 0
+
+    def run_ocr(_image: np.ndarray) -> list[dict]:
+        nonlocal calls
+        calls += 1
+        return [ocr_item("콩가루 수사단", 0.5)]
+
+    monkeypatch.setattr(service, "_run_ocr", run_ocr)
+    _, diagnostics = service._adaptive_ocr(
+        np.zeros((100, 30, 3), dtype=np.uint8),
+        adaptive=False,
+    )
+
+    assert calls == 1
+    assert diagnostics["attempt_count"] == 1
+    assert diagnostics["label_text"] is None

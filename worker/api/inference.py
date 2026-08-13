@@ -17,7 +17,7 @@ from worker.services.detection_service import SpineDetection, detector_service
 from worker.services.inference_service import process_scan_session_request
 from worker.services.ocr_field_parser import extract_ocr_fields
 from worker.services.scan_artifact_service import scan_artifact_service
-from worker.services.target_matching_service import find_target_book
+from worker.services.target_matching_service import find_target_book, is_confident_early_match
 
 router = APIRouter(prefix="/inference", tags=["Inference"])
 
@@ -398,11 +398,21 @@ async def find_target_book_in_image(
 ):
     """Find one user-selected catalog holding in an uploaded shelf image."""
 
+    request_started_at = time.perf_counter()
+
     filename = file.filename
     if not filename:
         raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
     if not target_title.strip():
         raise HTTPException(status_code=422, detail="target_title is required.")
+
+    target = TargetBook(
+        holding_id=holding_id,
+        title=target_title.strip(),
+        author=target_author.strip() if target_author else None,
+        call_number=target_call_number.strip() if target_call_number else None,
+        isbn13=target_isbn13.strip() if target_isbn13 else None,
+    )
 
     run_id = str(uuid4())
     safe_filename = Path(filename).name
@@ -418,6 +428,7 @@ async def find_target_book_in_image(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid image file: {exc}") from exc
 
+    detection_started_at = time.perf_counter()
     if detector_service.is_ready:
         try:
             detections = detector_service.detect_spines(str(temp_path))
@@ -431,11 +442,12 @@ async def find_target_book_in_image(
                 polygon=[[0, 0], [image_width, 0], [image_width, image_height], [0, image_height]],
             )
         ]
+    detection_elapsed = time.perf_counter() - detection_started_at
 
     from worker.services.vision_service import vision_service
 
-    crop_dir = upload_dir / "crops"
     ocr_results: list[OCRResultItem] = []
+    ocr_started_at = time.perf_counter()
     for order, detection in enumerate(detections, start=1):
         crop_x, crop_y, crop_width, crop_height = detection.bbox
         try:
@@ -443,7 +455,10 @@ async def find_target_book_in_image(
                 str(temp_path),
                 crop_rect=(crop_x, crop_y, crop_width, crop_height),
                 obb_polygon=detection.polygon if detection.is_obb else None,
-                crop_output_path=str(crop_dir / f"{order:03d}.jpg"),
+                # Patron search already knows the target title, author and call
+                # number. A single OCR pass per spine is enough for ranking and
+                # avoids the administrator-oriented label/fallback variants.
+                adaptive=False,
             )
             raw_text = join_ocr_text(extracted)
             title, author, call_number = extract_ocr_fields(raw_text)
@@ -464,21 +479,27 @@ async def find_target_book_in_image(
                     ocr_label_confidence=crop_metadata.label_confidence,
                 )
             )
+            partial_response = find_target_book(target, ocr_results)
+            if is_confident_early_match(partial_response, order):
+                early_match = partial_response.best_detection
+                assert early_match is not None
+                analyze_log(
+                    f"[find_target_book] early stop order={order} "
+                    f"score={early_match.score:.1f}"
+                )
+                break
         except Exception as exc:
             analyze_log(f"[find_target_book] OCR failed spine={order}: {exc}")
 
-    target = TargetBook(
-        holding_id=holding_id,
-        title=target_title.strip(),
-        author=target_author.strip() if target_author else None,
-        call_number=target_call_number.strip() if target_call_number else None,
-        isbn13=target_isbn13.strip() if target_isbn13 else None,
-    )
+    ocr_elapsed = time.perf_counter() - ocr_started_at
+
     response = find_target_book(target, ocr_results)
     analyze_log(
         f"[find_target_book] status={response.status} target={target.title!r} "
         f"best_order={response.best_detection.detected_order if response.best_detection else None} "
-        f"score={response.best_detection.score if response.best_detection else 0.0:.1f}"
+        f"score={response.best_detection.score if response.best_detection else 0.0:.1f} "
+        f"spines={len(detections)} ocr_spines={len(ocr_results)} detection={detection_elapsed:.1f}s "
+        f"ocr={ocr_elapsed:.1f}s total={time.perf_counter() - request_started_at:.1f}s"
     )
     return response
 

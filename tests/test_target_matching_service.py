@@ -1,5 +1,5 @@
 from worker.schemas.inference import OCRResultItem, TargetBook
-from worker.services.target_matching_service import call_number_similarity, find_target_book
+from worker.services.target_matching_service import call_number_similarity, find_target_book, is_confident_early_match
 
 
 TARGET = TargetBook(
@@ -79,3 +79,27 @@ def test_possible_result_exposes_top_two_candidates() -> None:
 
     assert response.status == "possible"
     assert [candidate.detected_order for candidate in response.candidate_detections] == [3, 4]
+
+
+def test_exact_title_and_call_number_can_stop_target_search_early() -> None:
+    response = find_target_book(
+        TARGET,
+        [
+            ocr(1, "전혀 다른 책", "813.6 조92ㄱ", "다른 저자"),
+            ocr(13, TARGET.title, TARGET.call_number, TARGET.author),
+        ],
+    )
+
+    assert is_confident_early_match(response, latest_order=13)
+
+
+def test_ambiguous_target_search_does_not_stop_early() -> None:
+    response = find_target_book(
+        TARGET,
+        [
+            ocr(12, TARGET.title, TARGET.call_number, TARGET.author),
+            ocr(13, TARGET.title, TARGET.call_number, TARGET.author),
+        ],
+    )
+
+    assert not is_confident_early_match(response, latest_order=13)
