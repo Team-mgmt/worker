@@ -138,6 +138,114 @@ class VisionService:
         )
         return self._offset_results(extracted, x, y), metadata
 
+    def crop_many_for_fast_ocr(
+        self,
+        image_path: str,
+        crop_specs: list[tuple[tuple[int, int, int, int], list[list[float]] | None]],
+        crop_output_paths: list[str | None] | None = None,
+    ) -> tuple[list[list[dict[str, Any]]], list[CropMetadata]]:
+        """OCR spine crops in contact sheets while preserving their input order."""
+
+        if self.ocr is None:
+            raise RuntimeError("PaddleOCR engine not initialized.")
+
+        image = self._load_image(image_path)
+        crops: list[np.ndarray] = []
+        metadata: list[CropMetadata] = []
+        for index, (crop_rect, polygon) in enumerate(crop_specs):
+            cropped, method = self._extract_crop(image, crop_rect, polygon)
+            crops.append(cropped)
+            saved_path = None
+            if crop_output_paths and index < len(crop_output_paths) and crop_output_paths[index]:
+                output_path = Path(crop_output_paths[index] or "")
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                success, encoded = cv2.imencode(".jpg", cropped, [cv2.IMWRITE_JPEG_QUALITY, 92])
+                if not success:
+                    raise ValueError("Failed to encode the OCR crop.")
+                encoded.tofile(output_path)
+                saved_path = str(output_path)
+            metadata.append(
+                CropMetadata(
+                    method=method,
+                    size=[int(cropped.shape[1]), int(cropped.shape[0])],
+                    path=saved_path,
+                    ocr_variant="contact_sheet",
+                    attempt_count=1,
+                )
+            )
+
+        grouped: list[list[dict[str, Any]]] = [[] for _ in crops]
+        batch_size = max(1, settings.OCR_CONTACT_SHEET_BATCH_SIZE)
+        for start in range(0, len(crops), batch_size):
+            batch = crops[start : start + batch_size]
+            sheet, ranges = self._compose_contact_sheet(batch)
+            extracted = self._run_ocr(sheet)
+            distributed = self._distribute_contact_sheet_results(extracted, ranges)
+            grouped[start : start + len(batch)] = distributed
+
+        return grouped, metadata
+
+    @staticmethod
+    def _load_image(image_path: str) -> np.ndarray:
+        img_array = np.fromfile(image_path, np.uint8)
+        if img_array.size == 0:
+            raise FileNotFoundError(f"Image not found: {image_path}")
+        image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError(f"Failed to decode image: {image_path}")
+        return image
+
+    @staticmethod
+    def _extract_crop(
+        image: np.ndarray,
+        crop_rect: tuple[int, int, int, int],
+        obb_polygon: list[list[float]] | None,
+    ) -> tuple[np.ndarray, str]:
+        if obb_polygon and len(obb_polygon) == 4:
+            cropped = VisionService._rectify_obb(image, obb_polygon)
+            method = "obb_perspective"
+        else:
+            x, y, width, height = crop_rect
+            cropped = image[y : y + height, x : x + width]
+            method = "axis_aligned"
+        if cropped.size == 0:
+            raise ValueError("The detected crop is empty.")
+        return cropped, method
+
+    @staticmethod
+    def _compose_contact_sheet(crops: list[np.ndarray]) -> tuple[np.ndarray, list[tuple[int, int]]]:
+        gutter = max(0, settings.OCR_CONTACT_SHEET_GUTTER)
+        height = max(crop.shape[0] for crop in crops)
+        width = sum(crop.shape[1] for crop in crops) + gutter * max(0, len(crops) - 1)
+        sheet = np.full((height, width, 3), 255, dtype=np.uint8)
+        ranges: list[tuple[int, int]] = []
+        offset = 0
+        for crop in crops:
+            end = offset + crop.shape[1]
+            sheet[: crop.shape[0], offset:end] = crop
+            ranges.append((offset, end))
+            offset = end + gutter
+        return sheet, ranges
+
+    @staticmethod
+    def _distribute_contact_sheet_results(
+        extracted: list[dict[str, Any]],
+        ranges: list[tuple[int, int]],
+    ) -> list[list[dict[str, Any]]]:
+        grouped: list[list[dict[str, Any]]] = [[] for _ in ranges]
+        for item in extracted:
+            bbox = item.get("bbox") or []
+            if not bbox:
+                continue
+            center_x = sum(float(point[0]) for point in bbox) / len(bbox)
+            for index, (start, end) in enumerate(ranges):
+                if start <= center_x < end:
+                    copied = dict(item)
+                    copied["bbox"] = [[float(point[0]) - start, float(point[1])] for point in bbox]
+                    grouped[index].append(copied)
+                    break
+        return grouped
+
     def _adaptive_ocr(
         self,
         cropped: np.ndarray,

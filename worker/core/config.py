@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     OCR_FALLBACK_CONFIDENCE: float = 0.78
     OCR_ENABLE_ADAPTIVE_FALLBACK: bool = True
     OCR_MAX_FALLBACK_VARIANTS: int = 3
+    OCR_CONTACT_SHEET_BATCH_SIZE: int = 6
+    OCR_CONTACT_SHEET_GUTTER: int = 24
     
     @property
     def async_database_url(self) -> str:

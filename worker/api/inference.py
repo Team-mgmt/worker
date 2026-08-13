@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from worker.core.database import get_db
+from worker.core.config import settings
 from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest, TargetBook, TargetBookSearchResponse, VideoAnalysisResponse, VideoFrameQuality
 from worker.services.detection_service import SpineDetection, detector_service
 from worker.services.inference_service import process_scan_session_request
@@ -287,6 +288,28 @@ async def analyze_vision(
     crop_dir = upload_dir / "crops"
     
     ocr_started_at = time.perf_counter()
+    primary_batch_results = None
+    primary_batch_metadata = None
+    if not preprocess:
+        try:
+            primary_batch_results, primary_batch_metadata = vision_service.crop_many_for_fast_ocr(
+                str(temp_path),
+                [
+                    (detection.bbox, detection.polygon if detection.is_obb else None)
+                    for detection in detections
+                ],
+                [str(crop_dir / f"{order:03d}.jpg") for order in range(1, len(detections) + 1)],
+            )
+            analyze_log(
+                f"[analyze_vision] contact-sheet primary OCR spines={len(detections)} "
+                f"batch_size={settings.OCR_CONTACT_SHEET_BATCH_SIZE}"
+            )
+        except Exception as exc:
+            analyze_log(
+                f"[analyze_vision] contact-sheet primary OCR failed; "
+                f"falling back to per-spine OCR: {exc}"
+            )
+
     for order, detection in enumerate(detections, start=1):
         crop_x, crop_y, crop_width, crop_height = detection.bbox
         crop_rect = (crop_x, crop_y, crop_width, crop_height)
@@ -299,13 +322,25 @@ async def analyze_vision(
 
         try:
             spine_ocr_started_at = time.perf_counter()
-            extracted, crop_metadata = vision_service.crop_and_ocr(
-                str(temp_path),
-                crop_rect=crop_rect,
-                obb_polygon=detection.polygon if detection.is_obb else None,
-                preprocess=preprocess,
-                crop_output_path=str(crop_dir / f"{order:03d}.jpg"),
-            )
+            batched = primary_batch_results[order - 1] if primary_batch_results is not None else None
+            batched_text = join_ocr_text(batched or [])
+            batched_confidence = average_ocr_confidence(batched or []) or 0.0
+            if (
+                batched
+                and batched_confidence >= settings.OCR_FALLBACK_CONFIDENCE
+                and vision_service._has_call_number(batched_text)
+                and primary_batch_metadata is not None
+            ):
+                extracted = batched
+                crop_metadata = primary_batch_metadata[order - 1]
+            else:
+                extracted, crop_metadata = vision_service.crop_and_ocr(
+                    str(temp_path),
+                    crop_rect=crop_rect,
+                    obb_polygon=detection.polygon if detection.is_obb else None,
+                    preprocess=preprocess,
+                    crop_output_path=str(crop_dir / f"{order:03d}.jpg"),
+                )
             paddle_text = join_ocr_text(extracted)
             paddle_confidence = average_ocr_confidence(extracted)
             title, author, call_number = extract_ocr_fields(paddle_text)
@@ -449,18 +484,43 @@ async def find_target_book_in_image(
 
     ocr_results: list[OCRResultItem] = []
     ocr_started_at = time.perf_counter()
+    batch_results = None
+    batch_metadata = None
+    try:
+        batch_results, batch_metadata = vision_service.crop_many_for_fast_ocr(
+            str(temp_path),
+            [
+                (
+                    detection.bbox,
+                    detection.polygon if detection.is_obb else None,
+                )
+                for detection in detections
+            ],
+        )
+        analyze_log(
+            f"[find_target_book] contact-sheet OCR spines={len(detections)} "
+            f"batch_size={settings.OCR_CONTACT_SHEET_BATCH_SIZE}"
+        )
+    except Exception as exc:
+        analyze_log(
+            f"[find_target_book] contact-sheet OCR failed; falling back to per-spine OCR: {exc}"
+        )
+
     for order, detection in enumerate(detections, start=1):
         crop_x, crop_y, crop_width, crop_height = detection.bbox
         try:
-            extracted, crop_metadata = vision_service.crop_and_ocr(
-                str(temp_path),
-                crop_rect=(crop_x, crop_y, crop_width, crop_height),
-                obb_polygon=detection.polygon if detection.is_obb else None,
-                # Patron search already knows the target title, author and call
-                # number. A single OCR pass per spine is enough for ranking and
-                # avoids the administrator-oriented label/fallback variants.
-                adaptive=False,
-            )
+            if batch_results is not None and batch_metadata is not None:
+                extracted = batch_results[order - 1]
+                crop_metadata = batch_metadata[order - 1]
+            else:
+                extracted, crop_metadata = vision_service.crop_and_ocr(
+                    str(temp_path),
+                    crop_rect=(crop_x, crop_y, crop_width, crop_height),
+                    obb_polygon=detection.polygon if detection.is_obb else None,
+                    # Safe fallback for PaddleOCR versions or images that do
+                    # not support contact-sheet result distribution.
+                    adaptive=False,
+                )
             raw_text = join_ocr_text(extracted)
             title, author, call_number = extract_ocr_fields(raw_text)
             ocr_results.append(
@@ -481,7 +541,7 @@ async def find_target_book_in_image(
                 )
             )
             partial_response = find_target_book(target, ocr_results)
-            if is_confident_early_match(partial_response, order):
+            if batch_results is None and is_confident_early_match(partial_response, order):
                 early_match = partial_response.best_detection
                 assert early_match is not None
                 analyze_log(

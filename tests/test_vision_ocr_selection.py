@@ -67,3 +67,53 @@ def test_fast_ocr_never_runs_label_or_fallback_variants(monkeypatch: pytest.Monk
     assert calls == 1
     assert diagnostics["attempt_count"] == 1
     assert diagnostics["label_text"] is None
+
+
+def test_contact_sheet_distributes_text_back_to_each_spine() -> None:
+    crops = [
+        np.zeros((20, 10, 3), dtype=np.uint8),
+        np.zeros((20, 12, 3), dtype=np.uint8),
+    ]
+    sheet, ranges = VisionService._compose_contact_sheet(crops)
+    first_center = (ranges[0][0] + ranges[0][1]) / 2
+    second_center = (ranges[1][0] + ranges[1][1]) / 2
+    extracted = [
+        {"text": "첫 책", "confidence": 0.9, "bbox": [[first_center - 1, 0], [first_center + 1, 0]]},
+        {"text": "둘째 책", "confidence": 0.8, "bbox": [[second_center - 1, 0], [second_center + 1, 0]]},
+    ]
+
+    grouped = VisionService._distribute_contact_sheet_results(extracted, ranges)
+
+    assert sheet.shape[1] == 10 + 12 + 24
+    assert [item[0]["text"] for item in grouped] == ["첫 책", "둘째 책"]
+    assert grouped[1][0]["bbox"][0][0] < 12
+
+
+def test_fast_batch_decodes_source_once_and_uses_one_ocr_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = VisionService.__new__(VisionService)
+    service.ocr = object()
+    image = np.zeros((20, 30, 3), dtype=np.uint8)
+    loads = 0
+    calls = 0
+
+    def load_image(_path: str) -> np.ndarray:
+        nonlocal loads
+        loads += 1
+        return image
+
+    def run_ocr(_sheet: np.ndarray) -> list[dict]:
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(service, "_load_image", load_image)
+    monkeypatch.setattr(service, "_run_ocr", run_ocr)
+    results, metadata = service.crop_many_for_fast_ocr(
+        "unused.jpg",
+        [((0, 0, 10, 20), None), ((10, 0, 10, 20), None)],
+    )
+
+    assert loads == 1
+    assert calls == 1
+    assert results == [[], []]
+    assert [item.ocr_variant for item in metadata] == ["contact_sheet", "contact_sheet"]

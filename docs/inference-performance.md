@@ -20,8 +20,18 @@ passes when the primary result has low confidence or no call number. A clear spi
 uses one OCR call while difficult spines retain the existing recovery path.
 
 Patron target search already has a catalog title, author, and call number. It therefore
-uses one OCR pass per inspected spine and does not persist temporary crop JPEGs. It can
-stop before the end of the shelf only when all of these conditions hold:
+does not persist temporary crop JPEGs. Multiple rectified spines are combined into white-
+gutter contact sheets before OCR, reducing 35 per-spine pipeline calls to 6 calls with the
+default batch size of 6. OCR polygons are assigned back to the original spine by their
+horizontal contact-sheet range. If contact-sheet OCR fails, the endpoint automatically
+falls back to the compatible per-spine fast path.
+
+Administrator analysis uses the same contact-sheet path for the primary OCR pass while
+continuing to save individual crop JPEGs. Only low-confidence spines or spines without a
+call number run the original label-region, enhancement, and rotation fallback passes.
+
+The per-spine compatibility path can stop before the end of the shelf only when all of
+these conditions hold:
 
 - the normal `found` score and margin checks pass;
 - total and title scores are at least 90;
@@ -29,6 +39,16 @@ stop before the end of the shelf only when all of these conditions hold:
 - the call-number suffix does not conflict.
 
 The response schemas and administrator `result.json` diagnostics remain unchanged.
+
+The contact-sheet behavior can be tuned without a code change:
+
+```env
+OCR_CONTACT_SHEET_BATCH_SIZE=6
+OCR_CONTACT_SHEET_GUTTER=24
+```
+
+On small CPU instances, start with 4-6. Larger batches reduce pipeline calls but increase
+peak image memory and may resize very wide sheets more aggressively inside text detection.
 
 The administrator catalog endpoint also caches exact result counts for 60 seconds. Page
 rows and counts execute concurrently on a cache miss, and page navigation reuses the
@@ -50,4 +70,3 @@ For administrator analysis, compare OCR attempts in the saved `result.json`. Cle
 spines should normally report `ocr_attempt_count: 1`; difficult spines may report more.
 Always compare target Top-1 accuracy and administrator call-number accuracy before and
 after the change on the same images.
-
