@@ -312,7 +312,8 @@ async def analyze_vision(
 
             analyze_log(
                 f"[analyze_vision] OCR spine={order} "
-                f"text={paddle_text[:80]!r} elapsed={time.perf_counter() - spine_ocr_started_at:.1f}s"
+                f"text={paddle_text[:80]!r} elapsed={time.perf_counter() - spine_ocr_started_at:.1f}s "
+                f"variant={crop_metadata.ocr_variant} attempts={crop_metadata.attempt_count}"
             )
         except Exception as exc:
             analyze_log(f"[analyze_vision] OCR failed spine={order}: {exc}")
