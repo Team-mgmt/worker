@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { createFileRoute } from "@tanstack/react-router";
 
-import { CameraIcon, Loader2Icon, SearchIcon } from "lucide-react";
+import { CameraIcon, ImagesIcon, Loader2Icon, SearchIcon } from "lucide-react";
 
 import { LIBRARIES } from "@/lib/libraries";
 
@@ -222,26 +222,47 @@ function PatronBookFinder() {
       ) : null}
 
       {target ? (
-        <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 bg-zinc-950 px-4 py-4 font-bold text-white">
-          {busy ? (
-            <Loader2Icon className="size-5 animate-spin" />
-          ) : (
-            <CameraIcon className="size-5" />
-          )}
-          {busy ? "책등을 확인하는 중" : "서가 촬영 또는 사진 선택"}
-          <input
-            className="sr-only"
-            type="file"
-            accept="image/*"
-            capture="environment"
-            disabled={busy}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void analyze(file);
-              event.target.value = "";
-            }}
-          />
-        </label>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button asChild size="lg" disabled={busy}>
+            <label className="cursor-pointer">
+              {busy ? (
+                <Loader2Icon className="size-5 animate-spin" />
+              ) : (
+                <CameraIcon className="size-5" />
+              )}
+              카메라 촬영
+              <input
+                className="sr-only"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                disabled={busy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void analyze(file);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          </Button>
+          <Button asChild size="lg" variant="outline" disabled={busy}>
+            <label className="cursor-pointer bg-white">
+              <ImagesIcon className="size-5" />
+              갤러리 선택
+              <input
+                className="sr-only"
+                type="file"
+                accept="image/*"
+                disabled={busy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void analyze(file);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          </Button>
+        </div>
       ) : null}
 
       {error ? (
