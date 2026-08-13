@@ -8,15 +8,16 @@ from uuid import uuid4
 from pathlib import Path
 
 from PIL import Image
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from worker.core.database import get_db
-from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest, VideoAnalysisResponse, VideoFrameQuality
+from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest, TargetBook, TargetBookSearchResponse, VideoAnalysisResponse, VideoFrameQuality
 from worker.services.detection_service import SpineDetection, detector_service
 from worker.services.inference_service import process_scan_session_request
 from worker.services.ocr_field_parser import extract_ocr_fields
 from worker.services.scan_artifact_service import scan_artifact_service
+from worker.services.target_matching_service import find_target_book
 
 router = APIRouter(prefix="/inference", tags=["Inference"])
 
@@ -383,6 +384,102 @@ async def analyze_vision(
             analyze_log(f"[analyze_vision] artifacts saved prefix={artifact_prefix}")
     except Exception as exc:
         analyze_log(f"[analyze_vision] artifact save failed; continuing without S3: {exc}")
+    return response
+
+
+@router.post("/find_target_book", response_model=TargetBookSearchResponse)
+async def find_target_book_in_image(
+    file: UploadFile = File(...),
+    holding_id: str = Form(...),
+    target_title: str = Form(...),
+    target_author: str | None = Form(default=None),
+    target_call_number: str | None = Form(default=None),
+    target_isbn13: str | None = Form(default=None),
+):
+    """Find one user-selected catalog holding in an uploaded shelf image."""
+
+    filename = file.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
+    if not target_title.strip():
+        raise HTTPException(status_code=422, detail="target_title is required.")
+
+    run_id = str(uuid4())
+    safe_filename = Path(filename).name
+    upload_dir = Path("outputs/uploads") / run_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = upload_dir / safe_filename
+    with temp_path.open("wb") as output:
+        output.write(await file.read())
+
+    try:
+        with Image.open(temp_path) as image:
+            image_width, image_height = image.size
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid image file: {exc}") from exc
+
+    if detector_service.is_ready:
+        try:
+            detections = detector_service.detect_spines(str(temp_path))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Book-spine detection failed: {exc}") from exc
+    else:
+        detections = [
+            SpineDetection(
+                bbox=(0, 0, image_width, image_height),
+                confidence=None,
+                polygon=[[0, 0], [image_width, 0], [image_width, image_height], [0, image_height]],
+            )
+        ]
+
+    from worker.services.vision_service import vision_service
+
+    crop_dir = upload_dir / "crops"
+    ocr_results: list[OCRResultItem] = []
+    for order, detection in enumerate(detections, start=1):
+        crop_x, crop_y, crop_width, crop_height = detection.bbox
+        try:
+            extracted, crop_metadata = vision_service.crop_and_ocr(
+                str(temp_path),
+                crop_rect=(crop_x, crop_y, crop_width, crop_height),
+                obb_polygon=detection.polygon if detection.is_obb else None,
+                crop_output_path=str(crop_dir / f"{order:03d}.jpg"),
+            )
+            raw_text = join_ocr_text(extracted)
+            title, author, call_number = extract_ocr_fields(raw_text)
+            ocr_results.append(
+                OCRResultItem(
+                    detected_order=order,
+                    raw_text=raw_text,
+                    title=title,
+                    author=author,
+                    call_number=call_number or None,
+                    bbox=[float(crop_x), float(crop_y), float(crop_x + crop_width), float(crop_y + crop_height)],
+                    ocr_confidence=average_ocr_confidence(extracted),
+                    detection_confidence=detection.confidence,
+                    obb_polygon=detection.polygon,
+                    ocr_variant=crop_metadata.ocr_variant,
+                    ocr_attempt_count=crop_metadata.attempt_count,
+                    ocr_label_text=crop_metadata.label_text,
+                    ocr_label_confidence=crop_metadata.label_confidence,
+                )
+            )
+        except Exception as exc:
+            analyze_log(f"[find_target_book] OCR failed spine={order}: {exc}")
+
+    target = TargetBook(
+        holding_id=holding_id,
+        title=target_title.strip(),
+        author=target_author.strip() if target_author else None,
+        call_number=target_call_number.strip() if target_call_number else None,
+        isbn13=target_isbn13.strip() if target_isbn13 else None,
+    )
+    response = find_target_book(target, ocr_results)
+    analyze_log(
+        f"[find_target_book] status={response.status} target={target.title!r} "
+        f"best_order={response.best_detection.detected_order if response.best_detection else None} "
+        f"score={response.best_detection.score if response.best_detection else 0.0:.1f}"
+    )
     return response
 
 

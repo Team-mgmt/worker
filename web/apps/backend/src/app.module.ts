@@ -26,6 +26,7 @@ import { AdminOrganizationModule } from "./routes/admin/organization/organizatio
 import { AdminProviderModule } from "./routes/admin/providers/provider.module";
 import { AuthModule } from "./routes/auth/auth.module";
 import { UploadModule } from "./routes/service/upload/upload.module";
+import { PublicLibraryBooksModule } from "./routes/public/library-books/library-books.module";
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { UploadModule } from "./routes/service/upload/upload.module";
     UploadModule,
     AdminDocumentModule,
     AdminLibraryBooksModule,
+    PublicLibraryBooksModule,
     AdminOrganizationModule,
     AdminProviderModule,
   ],

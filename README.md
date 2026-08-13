@@ -66,6 +66,9 @@ ShelfOps 대시보드          <--분석/판정 결과-- 도서관 장서 DB 매
 청구기호 좌우 정렬 판정, 배치 GT 작성법, 오배열 Precision/Recall 평가는
 [`docs/shelf-order-evaluation.md`](docs/shelf-order-evaluation.md)를 참고하세요.
 
+이용자용 목표 도서 검색·촬영 MVP와 임시 판정 기준은
+[`docs/patron-target-book-search.md`](docs/patron-target-book-search.md)를 참고하세요.
+
 ## 6. 기술 구현 상세
 
 ### 책등 검출 모델 (YOLO)

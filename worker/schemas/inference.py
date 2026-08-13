@@ -80,6 +80,39 @@ class MatchResponse(BaseModel):
     artifact_prefix: Optional[str] = None
 
 
+class TargetBook(BaseModel):
+    holding_id: str
+    title: str
+    author: Optional[str] = None
+    call_number: Optional[str] = None
+    isbn13: Optional[str] = None
+
+
+class TargetDetection(BaseModel):
+    detected_order: int
+    bbox: Optional[List[float]] = None
+    obb_polygon: Optional[List[List[float]]] = None
+    ocr_raw_text: Optional[str] = None
+    ocr_title: Optional[str] = None
+    ocr_author: Optional[str] = None
+    ocr_call_number: Optional[str] = None
+    score: float
+    title_score: float
+    author_score: float
+    call_number_score: float
+
+
+class TargetBookSearchResponse(BaseModel):
+    status: str  # found, possible, not_found
+    calibration_status: str = "uncalibrated"
+    target: TargetBook
+    best_detection: Optional[TargetDetection] = None
+    second_best_score: Optional[float] = None
+    score_margin: Optional[float] = None
+    location_hint: Optional[str] = None
+    detections: List[TargetDetection] = Field(default_factory=list)
+
+
 class VideoFrameQuality(BaseModel):
     frame_index: int
     timestamp_seconds: float
