@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-import os
+import asyncio
+import base64
+import json
 import time
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -11,7 +15,7 @@ from worker.schemas.inference import OCRResultItem
 
 
 class RemoteVisionError(RuntimeError):
-    """Raised when fal vision inference cannot produce a valid result."""
+    """Raised when remote vision inference cannot produce a valid result."""
 
 
 class RemoteVisionItem(BaseModel):
@@ -43,39 +47,57 @@ class RemoteVisionResponse(BaseModel):
     model_sha256: str
 
 
-class FalVisionService:
+class RemoteVisionService:
     @property
     def enabled(self) -> bool:
-        return settings.FAL_VISION_ENABLED
+        return settings.REMOTE_VISION_ENABLED
 
     async def analyze(self, image_path: Path, *, adaptive: bool) -> tuple[list[OCRResultItem], float, float, str]:
-        if not settings.FAL_VISION_ENDPOINT.strip():
-            raise RemoteVisionError("FAL_VISION_ENDPOINT is empty.")
-        if not os.getenv("FAL_KEY"):
-            raise RemoteVisionError("FAL_KEY is not configured.")
-
-        try:
-            import fal_client
-        except ImportError as exc:
-            raise RemoteVisionError("fal-client is not installed.") from exc
+        endpoint = settings.REMOTE_VISION_ENDPOINT.strip()
+        if not endpoint:
+            raise RemoteVisionError("REMOTE_VISION_ENDPOINT is empty.")
+        if settings.REMOTE_VISION_PROVIDER.lower() != "modal":
+            raise RemoteVisionError(f"Unsupported remote vision provider: {settings.REMOTE_VISION_PROVIDER}")
+        if not settings.MODAL_TOKEN_ID or not settings.MODAL_TOKEN_SECRET:
+            raise RemoteVisionError("MODAL_TOKEN_ID and MODAL_TOKEN_SECRET are required.")
 
         started_at = time.perf_counter()
         try:
-            client = fal_client.AsyncClient(default_timeout=float(settings.FAL_VISION_TIMEOUT_SECONDS))
-            image_url = await client.upload_file(image_path, repository="fal_v3")
-            payload = await client.subscribe(
-                settings.FAL_VISION_ENDPOINT,
-                arguments={"image_url": image_url, "adaptive": adaptive},
-                client_timeout=float(settings.FAL_VISION_TIMEOUT_SECONDS),
+            encoded_image = base64.b64encode(image_path.read_bytes()).decode("ascii")
+            payload = await asyncio.to_thread(
+                self._post_json,
+                endpoint,
+                {"image_base64": encoded_image, "adaptive": adaptive},
             )
             response = RemoteVisionResponse.model_validate(payload)
         except ValidationError as exc:
-            raise RemoteVisionError(f"fal returned an invalid response: {exc}") from exc
+            raise RemoteVisionError(f"Modal returned an invalid response: {exc}") from exc
         except Exception as exc:
-            raise RemoteVisionError(f"fal vision request failed after {time.perf_counter() - started_at:.1f}s: {exc}") from exc
+            raise RemoteVisionError(f"Modal vision request failed after {time.perf_counter() - started_at:.1f}s: {exc}") from exc
 
         items = [OCRResultItem.model_validate(item.model_dump()) for item in response.items]
         return items, response.detection_seconds, response.ocr_seconds, response.model_sha256
 
+    @staticmethod
+    def _post_json(endpoint: str, payload: dict[str, object]) -> object:
+        request = Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Modal-Key": settings.MODAL_TOKEN_ID,
+                "Modal-Secret": settings.MODAL_TOKEN_SECRET,
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=settings.REMOTE_VISION_TIMEOUT_SECONDS) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")[:500]
+            raise RemoteVisionError(f"Modal HTTP {exc.code}: {body}") from exc
+        except URLError as exc:
+            raise RemoteVisionError(f"Modal connection failed: {exc.reason}") from exc
 
-fal_vision_service = FalVisionService()
+
+remote_vision_service = RemoteVisionService()

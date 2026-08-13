@@ -1,52 +1,64 @@
-"""fal Serverless GPU entrypoint for ShelfAlign detection and OCR.
+"""Modal L4 entrypoint for ShelfAlign YOLO OBB and PaddleOCR inference.
 
 Deploy from the repository root with:
-    fal deploy fal_app.py::ShelfAlignVision --app-name shelfalign-vision
+    python -m modal deploy modal_app.py
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
+import sys
 import tempfile
 import time
 from pathlib import Path
-from urllib.request import urlopen
 
-import fal
-from fal.container import ContainerImage
+import modal
 from pydantic import BaseModel, Field
 
-MODEL_PATH = Path("worker/models/book_spine_run/weights/best.pt")
+APP_NAME = "shelfalign-vision"
+REMOTE_ROOT = Path("/opt/shelfalign")
+MODEL_PATH = REMOTE_ROOT / "worker/models/book_spine_run/weights/best.pt"
 
-GPU_IMAGE = ContainerImage.from_dockerfile_str(
-    """
-    FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
-    ENV DEBIAN_FRONTEND=noninteractive
-    RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl libgl1 libglib2.0-0 python3 python3-pip python3-venv \
-        && rm -rf /var/lib/apt/lists/*
-    RUN python3 -m venv /opt/venv
-    ENV PATH=/opt/venv/bin:$PATH
-    RUN pip install --no-cache-dir torch torchvision \
-        --index-url https://download.pytorch.org/whl/cu126
-    RUN pip install --no-cache-dir paddlepaddle-gpu==3.3.0 \
-        --index-url https://www.paddlepaddle.org.cn/packages/stable/cu126/ \
-        --extra-index-url https://pypi.org/simple
-    RUN pip install --no-cache-dir \
-        'ultralytics>=8.3,<9' 'paddleocr>=3.3,<4' \
-        'opencv-python-headless>=4.12,<5' 'pydantic-settings>=2.12,<3'
-    RUN pip install --no-cache-dir fal
-    WORKDIR /app
-    COPY worker /app/worker
-    """,
-    context_dir=Path(__file__).parent,
-    dockerignore=[".git", ".env", ".venv", "outputs", "web", "tests", "*.jpg", "*.png"],
+gpu_image = (
+    modal.Image.from_registry(
+        "nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04",
+        add_python="3.12",
+    )
+    .apt_install("libgl1", "libglib2.0-0")
+    .pip_install(
+        "torch",
+        "torchvision",
+        index_url="https://download.pytorch.org/whl/cu126",
+    )
+    .pip_install(
+        "paddlepaddle-gpu==3.3.0",
+        index_url="https://www.paddlepaddle.org.cn/packages/stable/cu126/",
+        extra_index_url="https://pypi.org/simple",
+        extra_options="--no-deps",
+    )
+    .pip_install(
+        "ultralytics>=8.3,<9",
+        "paddleocr>=3.3,<4",
+        "opencv-python-headless>=4.12,<5",
+        "pydantic-settings>=2.12,<3",
+        "fastapi[standard]>=0.127,<1",
+        "httpx>=0.28,<1",
+        "opt-einsum==3.3.0",
+        "protobuf>=3.20.2",
+        "safetensors>=0.6,<1",
+        "nvidia-cuda-cccl-cu12==12.6.77",
+    )
+    .add_local_dir("worker", remote_path="/opt/shelfalign/worker", copy=True)
 )
+
+model_cache = modal.Volume.from_name("shelfalign-paddle-models", create_if_missing=True)
+app = modal.App(APP_NAME)
 
 
 class VisionInput(BaseModel):
-    image_url: str
+    image_base64: str
     adaptive: bool = True
 
 
@@ -75,29 +87,47 @@ class VisionOutput(BaseModel):
     model_sha256: str
 
 
-class ShelfAlignVision(fal.App, keep_alive=20, min_concurrency=0, max_concurrency=1):
-    machine_type = "GPU-RTX4090"
-    image = GPU_IMAGE
-
+@app.cls(
+    image=gpu_image,
+    gpu="L4",
+    min_containers=0,
+    max_containers=1,
+    scaledown_window=20,
+    timeout=180,
+    startup_timeout=300,
+    volumes={"/root/.paddlex": model_cache},
+)
+class ShelfAlignVision:
+    @modal.enter()
     def setup(self) -> None:
+        os.chdir(REMOTE_ROOT)
+        sys.path.insert(0, str(REMOTE_ROOT))
         os.environ["PADDLE_OCR_DEVICE"] = "gpu:0"
+
         from worker.services.detection_service import detector_service
         from worker.services.vision_service import vision_service
 
         if not detector_service.is_ready:
             raise RuntimeError(f"YOLO model is not ready at {MODEL_PATH}")
+        if vision_service.ocr is None:
+            raise RuntimeError("PaddleOCR GPU engine did not initialize.")
+
         self.detector = detector_service
         self.vision = vision_service
         self.model_sha256 = hashlib.sha256(MODEL_PATH.read_bytes()).hexdigest()
+        model_cache.commit()
 
-    @fal.endpoint("/")
-    def analyze(self, request: VisionInput) -> VisionOutput:
+    def _analyze(self, request: VisionInput) -> VisionOutput:
         from worker.services.ocr_field_parser import extract_ocr_fields
 
+        try:
+            image_bytes = base64.b64decode(request.image_base64, validate=True)
+        except ValueError as exc:
+            raise ValueError("image_base64 is invalid.") from exc
+
         with tempfile.TemporaryDirectory(prefix="shelfalign-") as directory:
-            image_path = Path(directory) / "shelf-image"
-            with urlopen(request.image_url, timeout=30) as response:
-                image_path.write_bytes(response.read())
+            image_path = Path(directory) / "shelf-image.jpg"
+            image_path.write_bytes(image_bytes)
 
             detection_started = time.perf_counter()
             detections = self.detector.detect_spines(str(image_path))
@@ -109,7 +139,10 @@ class ShelfAlignVision(fal.App, keep_alive=20, min_concurrency=0, max_concurrenc
                 [(item.bbox, item.polygon if item.is_obb else None) for item in detections],
             )
             items: list[VisionItem] = []
-            for order, (detection, extracted, crop) in enumerate(zip(detections, grouped, metadata, strict=True), start=1):
+            for order, (detection, extracted, crop) in enumerate(
+                zip(detections, grouped, metadata, strict=True),
+                start=1,
+            ):
                 raw_text = self.vision._join_text(extracted)
                 if request.adaptive and (
                     not extracted
@@ -152,3 +185,23 @@ class ShelfAlignVision(fal.App, keep_alive=20, min_concurrency=0, max_concurrenc
             ocr_seconds=time.perf_counter() - ocr_started,
             model_sha256=self.model_sha256,
         )
+
+    @modal.method()
+    def infer(self, request: VisionInput) -> VisionOutput:
+        return self._analyze(request)
+
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+    def analyze(self, request: VisionInput) -> VisionOutput:
+        return self._analyze(request)
+
+
+@app.local_entrypoint()
+def smoke(image_path: str) -> None:
+    """Run one authenticated smoke request without exposing proxy credentials."""
+
+    encoded = base64.b64encode(Path(image_path).read_bytes()).decode("ascii")
+    result = ShelfAlignVision().infer.remote(VisionInput(image_base64=encoded, adaptive=False))
+    print(
+        f"spines={len(result.items)} detection={result.detection_seconds:.2f}s "
+        f"ocr={result.ocr_seconds:.2f}s model_sha256={result.model_sha256}"
+    )
