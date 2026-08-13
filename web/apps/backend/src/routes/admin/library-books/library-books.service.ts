@@ -4,6 +4,39 @@ import { Prisma } from "@shelfalign/database/client";
 
 import { PrismaService } from "@/providers/database/prisma.service";
 
+export function buildLibraryBookSearchWhere(
+  queryValue: string | undefined,
+): Prisma.LibraryHoldingWhereInput | undefined {
+  const rawQuery = queryValue?.trim().toLowerCase();
+  if (!rawQuery) return undefined;
+  const normalizedQuery = rawQuery.normalize("NFKC");
+
+  const hasDigit = /\d/.test(rawQuery);
+  const hasLetter = /[a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣ]/.test(rawQuery);
+
+  if (!hasDigit && hasLetter) {
+    return {
+      book: {
+        OR: [
+          { normalizedBookname: { contains: normalizedQuery } },
+          { normalizedAuthors: { contains: normalizedQuery } },
+        ],
+      },
+    };
+  }
+
+  if (hasDigit && !hasLetter && /^\d{8,13}$/.test(rawQuery)) {
+    return { book: { isbn13: { startsWith: rawQuery } } };
+  }
+
+  return {
+    OR: [
+      { normalizedCallNumber: { contains: normalizedQuery } },
+      { bookCode: { contains: rawQuery, mode: "insensitive" } },
+    ],
+  };
+}
+
 @Injectable()
 export class AdminLibraryBooksService {
   constructor(private readonly prisma: PrismaService) {}
@@ -14,24 +47,12 @@ export class AdminLibraryBooksService {
     page: number;
     pageSize: number;
   }) {
-    const query = options.query?.trim();
+    const searchWhere = buildLibraryBookSearchWhere(options.query);
     const where: Prisma.LibraryHoldingWhereInput = {
       ...(options.libraryCode
         ? { libraryCode: options.libraryCode }
         : undefined),
-      ...(query
-        ? {
-            OR: [
-              { callNumber: { contains: query, mode: "insensitive" } },
-              { bookCode: { contains: query, mode: "insensitive" } },
-              { book: { isbn13: { contains: query, mode: "insensitive" } } },
-              {
-                book: { bookname: { contains: query, mode: "insensitive" } },
-              },
-              { book: { authors: { contains: query, mode: "insensitive" } } },
-            ],
-          }
-        : undefined),
+      ...searchWhere,
     };
     const skip = (options.page - 1) * options.pageSize;
 
