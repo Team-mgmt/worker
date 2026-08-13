@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from "lucide-react";

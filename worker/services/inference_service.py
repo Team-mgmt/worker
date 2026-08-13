@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from worker.db_models.inference import Detection, ScanSession
 from worker.schemas.inference import DetectionResult, MatchCandidate, MatchResponse, OCRResultItem, ScanSessionRequest
 from worker.services.matching_service import MIN_CONFIRMED_MATCH_SCORE, estimate_kdc_session, evaluate_misplacement, find_matches_for_ocr
+from worker.services.shelf_order_service import apply_shelf_order_decisions
 
 
 async def process_scan_session_request(request: ScanSessionRequest, db: AsyncSession, persist: bool = True) -> MatchResponse:
@@ -90,11 +91,15 @@ async def process_scan_session_request(request: ScanSessionRequest, db: AsyncSes
         session_db.estimated_shelf_end = estimated_shelf.kdc_end
         session_db.shelf_confidence = estimated_shelf.confidence
 
-    candidate_adapter = TypeAdapter(List[MatchCandidate])
     for result in detection_results:
         decision, reason = evaluate_misplacement(result, estimated_shelf)
         result.decision = decision
         result.reason = reason
+
+    apply_shelf_order_decisions(detection_results)
+
+    candidate_adapter = TypeAdapter(List[MatchCandidate])
+    for result in detection_results:
         ocr = source_items[result.detected_order]
         matched_book_id_for_db = result.matched_book_id if isinstance(result.matched_book_id, int) else None
         matched_holding_id_for_db = result.matched_holding_id if isinstance(result.matched_holding_id, int) else None

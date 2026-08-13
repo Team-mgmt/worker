@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -10,6 +11,7 @@ class GroundTruthAnnotation(BaseModel):
     title: str | None = None
     author: str | None = None
     call_number: str | None = None
+    placement_status: Literal["normal", "misplaced"] | None = None
 
     @field_validator("polygon")
     @classmethod
@@ -39,6 +41,17 @@ class DetectionMetrics(BaseModel):
     count_error: int
 
 
+class PlacementMetrics(BaseModel):
+    evaluated_count: int
+    true_positive: int
+    false_positive: int
+    false_negative: int
+    true_negative: int
+    precision: float
+    recall: float
+    f1: float
+
+
 class ArtifactRunSummary(BaseModel):
     run_id: str
     library_code: str
@@ -60,4 +73,5 @@ class ArtifactRunDetail(BaseModel):
 class GroundTruthSaveResponse(BaseModel):
     key: str
     metrics: DetectionMetrics
+    placement_metrics: PlacementMetrics | None = None
     ground_truth: dict

@@ -14,7 +14,7 @@ from worker.schemas.artifact_evaluation import (
     GroundTruthSaveRequest,
     GroundTruthSaveResponse,
 )
-from worker.services.detection_evaluation_service import calculate_detection_metrics, predictions_from_result
+from worker.services.detection_evaluation_service import calculate_detection_metrics, calculate_placement_metrics, predictions_from_result
 from worker.services.scan_artifact_service import scan_artifact_service
 
 
@@ -103,6 +103,7 @@ async def save_ground_truth(
 
     predictions = predictions_from_result(result)
     metrics = calculate_detection_metrics(predictions, [annotation["polygon"] for annotation in annotations])
+    placement_metrics = calculate_placement_metrics(predictions, annotations)
     yolo_obb_lines = [
         "0 "
         + " ".join(
@@ -112,7 +113,7 @@ async def save_ground_truth(
         for annotation in annotations
     ]
     payload = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "run_id": validated_run_id(run_id),
         "reviewed_at": datetime.now(UTC).isoformat(),
         "reviewer": request.reviewer.strip() or "admin",
@@ -124,6 +125,7 @@ async def save_ground_truth(
         "model": result.get("model"),
         "annotations": annotations,
         "metrics": metrics.model_dump(mode="json"),
+        "placement_metrics": placement_metrics.model_dump(mode="json") if placement_metrics else None,
         "training_export": {
             "format": "yolo-obb",
             "class_names": ["book_spine"],
@@ -132,4 +134,4 @@ async def save_ground_truth(
     }
     key = f"{prefix}/ground-truth.json"
     await scan_artifact_service.put_json(key, payload)
-    return GroundTruthSaveResponse(key=key, metrics=metrics, ground_truth=payload)
+    return GroundTruthSaveResponse(key=key, metrics=metrics, placement_metrics=placement_metrics, ground_truth=payload)

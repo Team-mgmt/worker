@@ -63,6 +63,9 @@ ShelfOps 대시보드          <--분석/판정 결과-- 도서관 장서 DB 매
 대량 장서 적재 후 백오피스 검색 쿼리와 trigram 인덱스를 운영·검증하는 방법은
 [`docs/catalog-search-performance.md`](docs/catalog-search-performance.md)를 참고하세요.
 
+청구기호 좌우 정렬 판정, 배치 GT 작성법, 오배열 Precision/Recall 평가는
+[`docs/shelf-order-evaluation.md`](docs/shelf-order-evaluation.md)를 참고하세요.
+
 ## 6. 기술 구현 상세
 
 ### 책등 검출 모델 (YOLO)

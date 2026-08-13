@@ -46,6 +46,7 @@ type Annotation = {
   title?: string | null;
   author?: string | null;
   call_number?: string | null;
+  placement_status?: "normal" | "misplaced" | null;
 };
 type DetectionMetrics = {
   iou_threshold: number;
@@ -60,6 +61,16 @@ type DetectionMetrics = {
   ap50: number;
   mean_matched_iou: number;
   count_error: number;
+};
+type PlacementMetrics = {
+  evaluated_count: number;
+  true_positive: number;
+  false_positive: number;
+  false_negative: number;
+  true_negative: number;
+  precision: number;
+  recall: number;
+  f1: number;
 };
 type ArtifactRun = {
   run_id: string;
@@ -83,6 +94,7 @@ type ArtifactDetail = {
   ground_truth?: {
     annotations?: Annotation[];
     metrics?: DetectionMetrics;
+    placement_metrics?: PlacementMetrics | null;
   } | null;
   image_width: number;
   image_height: number;
@@ -121,6 +133,7 @@ function predictionAnnotations(detail: ArtifactDetail): Annotation[] {
         title: result.ocr_title,
         author: result.ocr_author,
         call_number: result.ocr_call_number,
+        placement_status: "normal" as const,
       },
     ];
   });
@@ -159,6 +172,8 @@ function EvaluationPage() {
   const [draftPoints, setDraftPoints] = useState<Point[]>([]);
   const [mode, setMode] = useState<"select" | "add">("select");
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
+  const [placementMetrics, setPlacementMetrics] =
+    useState<PlacementMetrics | null>(null);
   const [message, setMessage] = useState("");
   const [isBusy, setIsBusy] = useState(true);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -210,13 +225,18 @@ function EvaluationPage() {
         throw new Error(body?.detail ?? `실행 조회 실패: ${response.status}`);
       }
       const payload = (await response.json()) as ArtifactDetail;
-      const initial = payload.ground_truth?.annotations?.length
+      const loadedAnnotations = payload.ground_truth?.annotations?.length
         ? payload.ground_truth.annotations
         : predictionAnnotations(payload);
+      const initial = loadedAnnotations.map((annotation) => ({
+        ...annotation,
+        placement_status: annotation.placement_status ?? ("normal" as const),
+      }));
       setRunId(nextRunId);
       setDetail(payload);
       setAnnotations(initial);
       setMetrics(payload.ground_truth?.metrics ?? null);
+      setPlacementMetrics(payload.ground_truth?.placement_metrics ?? null);
       setSelectedId(initial[0]?.id ?? null);
       setDraftPoints([]);
       setMode("select");
@@ -244,6 +264,7 @@ function EvaluationPage() {
     setAnnotations(next);
     setSelectedId(next[0]?.id ?? null);
     setMetrics(null);
+    setPlacementMetrics(null);
   };
   const handleStageClick = (event: KonvaEventObject<MouseEvent>) => {
     if (mode !== "add" || !detail) return;
@@ -258,7 +279,12 @@ function EvaluationPage() {
       const id = `spine-manual-${Date.now()}`;
       setAnnotations((current) => [
         ...current,
-        { id, class: "book_spine", polygon: next },
+        {
+          id,
+          class: "book_spine",
+          polygon: next,
+          placement_status: "normal",
+        },
       ]);
       setSelectedId(id);
       setDraftPoints([]);
@@ -284,8 +310,12 @@ function EvaluationPage() {
         const body = await response.json().catch(() => null);
         throw new Error(body?.detail ?? `GT 저장 실패: ${response.status}`);
       }
-      const payload = (await response.json()) as { metrics: DetectionMetrics };
+      const payload = (await response.json()) as {
+        metrics: DetectionMetrics;
+        placement_metrics?: PlacementMetrics | null;
+      };
       setMetrics(payload.metrics);
+      setPlacementMetrics(payload.placement_metrics ?? null);
       setMessage("ground-truth.json 저장과 평가가 완료되었습니다.");
       setRuns((current) =>
         current.map((run) =>
@@ -388,6 +418,24 @@ function EvaluationPage() {
               key={label}
               className="border-b border-r px-4 py-3 last:border-r-0 md:border-b-0"
             >
+              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="mt-1 text-lg font-bold tabular-nums">{value}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {placementMetrics ? (
+        <div className="mb-4 grid grid-cols-2 border bg-white md:grid-cols-4">
+          {[
+            ["오배열 Precision", percent(placementMetrics.precision)],
+            ["오배열 Recall", percent(placementMetrics.recall)],
+            ["오배열 F1", percent(placementMetrics.f1)],
+            [
+              "배치 TP / FP / FN / TN",
+              `${placementMetrics.true_positive} / ${placementMetrics.false_positive} / ${placementMetrics.false_negative} / ${placementMetrics.true_negative}`,
+            ],
+          ].map(([label, value]) => (
+            <div key={label} className="border-r px-4 py-3 last:border-r-0">
               <p className="text-xs text-muted-foreground">{label}</p>
               <p className="mt-1 text-lg font-bold tabular-nums">{value}</p>
             </div>
@@ -582,6 +630,23 @@ function EvaluationPage() {
                     })
                   }
                 />
+              </div>
+              <div>
+                <Label>배치 정답</Label>
+                <Select
+                  value={selected.placement_status ?? "normal"}
+                  onValueChange={(value: "normal" | "misplaced") =>
+                    updateAnnotation(selected.id, { placement_status: value })
+                  }
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="normal">정상</SelectItem>
+                    <SelectItem value="misplaced">오배열</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="text-xs text-muted-foreground">
                 {selected.polygon

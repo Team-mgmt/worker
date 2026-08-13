@@ -5,13 +5,14 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from worker.schemas.artifact_evaluation import DetectionMetrics
+from worker.schemas.artifact_evaluation import DetectionMetrics, PlacementMetrics
 
 
 @dataclass(frozen=True)
 class PredictionPolygon:
     polygon: list[list[float]]
     confidence: float
+    decision: str | None = None
 
 
 def bbox_polygon(bbox: list[float]) -> list[list[float]]:
@@ -42,6 +43,7 @@ def predictions_from_result(result: dict) -> list[PredictionPolygon]:
                 PredictionPolygon(
                     polygon=polygon,
                     confidence=float(item.get("detection_confidence") or 0.0),
+                    decision=item.get("decision"),
                 )
             )
     return predictions
@@ -113,4 +115,63 @@ def calculate_detection_metrics(
         ap50=round(ap50, 6),
         mean_matched_iou=round(sum(matched_ious) / len(matched_ious), 6) if matched_ious else 0.0,
         count_error=len(ordered_predictions) - len(ground_truth),
+    )
+
+
+def calculate_placement_metrics(
+    predictions: list[PredictionPolygon],
+    annotations: list[dict],
+    iou_threshold: float = 0.5,
+) -> PlacementMetrics | None:
+    """Evaluate misplaced-vs-normal decisions against polygon-aligned GT labels."""
+
+    labeled_annotations = [annotation for annotation in annotations if annotation.get("placement_status") in {"normal", "misplaced"}]
+    if not labeled_annotations:
+        return None
+
+    matched_predictions: set[int] = set()
+    true_positive = false_positive = false_negative = true_negative = 0
+    for annotation in labeled_annotations:
+        best_index = -1
+        best_iou = 0.0
+        for index, prediction in enumerate(predictions):
+            if index in matched_predictions:
+                continue
+            iou = polygon_iou(prediction.polygon, annotation["polygon"])
+            if iou > best_iou:
+                best_index = index
+                best_iou = iou
+
+        predicted_misplaced = False
+        if best_index >= 0 and best_iou >= iou_threshold:
+            matched_predictions.add(best_index)
+            predicted_misplaced = predictions[best_index].decision == "suspected_misplacement"
+
+        actual_misplaced = annotation["placement_status"] == "misplaced"
+        if actual_misplaced and predicted_misplaced:
+            true_positive += 1
+        elif actual_misplaced:
+            false_negative += 1
+        elif predicted_misplaced:
+            false_positive += 1
+        else:
+            true_negative += 1
+
+    false_positive += sum(
+        1
+        for index, prediction in enumerate(predictions)
+        if index not in matched_predictions and prediction.decision == "suspected_misplacement"
+    )
+    precision = true_positive / (true_positive + false_positive) if true_positive + false_positive else 0.0
+    recall = true_positive / (true_positive + false_negative) if true_positive + false_negative else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if precision + recall else 0.0
+    return PlacementMetrics(
+        evaluated_count=len(labeled_annotations),
+        true_positive=true_positive,
+        false_positive=false_positive,
+        false_negative=false_negative,
+        true_negative=true_negative,
+        precision=round(precision, 6),
+        recall=round(recall, 6),
+        f1=round(f1, 6),
     )
