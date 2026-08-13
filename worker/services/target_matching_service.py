@@ -12,6 +12,9 @@ from worker.services.matching_service import split_call_number
 FOUND_SCORE = 82.0
 POSSIBLE_SCORE = 65.0
 MIN_FOUND_MARGIN = 10.0
+HANGUL_BASE = 0xAC00
+HANGUL_END = 0xD7A3
+COMPATIBILITY_INITIALS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
 
 
 def normalize_match_text(value: str | None) -> str:
@@ -27,24 +30,61 @@ def text_similarity(first: str | None, second: str | None) -> float:
     return float(max(fuzz.ratio(left, right), fuzz.partial_ratio(left, right)))
 
 
-def call_number_similarity(first: str | None, second: str | None) -> float:
+def _initial_symbol(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    if not normalized:
+        return ""
+    first = normalized[0]
+    codepoint = ord(first)
+    if 0x1100 <= codepoint <= 0x1112:
+        return COMPATIBILITY_INITIALS[codepoint - 0x1100]
+    if HANGUL_BASE <= codepoint <= HANGUL_END:
+        return COMPATIBILITY_INITIALS[(codepoint - HANGUL_BASE) // 588]
+    return first
+
+
+def _split_book_code(value: str) -> tuple[str, str]:
+    compact = re.sub(r"[^0-9a-z가-힣ㄱ-ㅎㅏ-ㅣ]+", "", value.casefold())
+    match = re.match(r"^(.+?\d+)(.*)$", compact)
+    if not match:
+        return compact, ""
+    return match.group(1), _initial_symbol(match.group(2))
+
+
+def call_number_components(first: str | None, second: str | None) -> tuple[float, bool | None]:
     first_class, first_code = split_call_number(first or "")
     second_class, second_code = split_call_number(second or "")
     if not first_class or not second_class:
-        return 0.0
+        return 0.0, None
     class_score = 100.0 if first_class == second_class else float(fuzz.ratio(first_class, second_class))
-    code_score = text_similarity(first_code, second_code)
-    return (class_score * 0.55) + (code_score * 0.45)
+    first_stem, first_suffix = _split_book_code(first_code)
+    second_stem, second_suffix = _split_book_code(second_code)
+    stem_score = text_similarity(first_stem, second_stem)
+    suffix_match: bool | None = None
+    suffix_score = 0.0
+    if first_suffix and second_suffix:
+        suffix_match = first_suffix == second_suffix
+        suffix_score = 100.0 if suffix_match else 0.0
+    elif not first_suffix and not second_suffix:
+        suffix_score = 50.0
+    return (class_score * 0.25) + (stem_score * 0.4) + (suffix_score * 0.35), suffix_match
+
+
+def call_number_similarity(first: str | None, second: str | None) -> float:
+    score, _ = call_number_components(first, second)
+    return score
 
 
 def score_target_detection(target: TargetBook, ocr: OCRResultItem) -> TargetDetection:
     title_source = ocr.title or ocr.raw_text
     title_score = text_similarity(target.title, title_source)
     author_score = text_similarity(target.author, ocr.author or ocr.raw_text)
-    call_score = call_number_similarity(target.call_number, ocr.call_number)
+    call_score, suffix_match = call_number_components(target.call_number, ocr.call_number)
 
     if call_score > 0:
-        total_score = (call_score * 0.5) + (title_score * 0.4) + (author_score * 0.1)
+        total_score = (call_score * 0.45) + (title_score * 0.45) + (author_score * 0.1)
+        if suffix_match is False:
+            total_score -= 12.0
     else:
         total_score = (title_score * 0.8) + (author_score * 0.2)
     return TargetDetection(
@@ -59,6 +99,7 @@ def score_target_detection(target: TargetBook, ocr: OCRResultItem) -> TargetDete
         title_score=round(title_score, 1),
         author_score=round(author_score, 1),
         call_number_score=round(call_score, 1),
+        call_number_suffix_match=suffix_match,
     )
 
 
@@ -85,5 +126,6 @@ def find_target_book(target: TargetBook, ocr_results: list[OCRResultItem]) -> Ta
         second_best_score=second_score,
         score_margin=margin,
         location_hint=f"왼쪽에서 {best.detected_order}번째 책" if best and status != "not_found" else None,
+        candidate_detections=detections[:2] if status == "possible" else ([best] if best and status == "found" else []),
         detections=detections,
     )

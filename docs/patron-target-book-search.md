@@ -10,8 +10,13 @@ The patron flow is separate from the librarian full-catalog matching flow.
 5. The UI reports `found`, `possible`, or `not_found` and highlights the best spine.
 
 No vector model or GPU is required. The MVP combines normalized RapidFuzz title/author similarity with
-structured KDC and book-code similarity. When a call number is available, weights are call number 50%,
-title 40%, and author 10%; otherwise title is 80% and author 20%.
+structured KDC and book-code similarity. The call-number score separates KDC, the author-number stem,
+and the final title symbol; a different final symbol receives an additional penalty. When a call number
+is available, weights are call number 45%, title 45%, and author 10%; otherwise title is 80% and author
+20%.
+
+An ambiguous `possible` response returns its top two candidates. The patron UI marks both in amber so it
+does not visually assert that a single uncertain candidate is the requested book.
 
 Temporary, uncalibrated thresholds are:
 

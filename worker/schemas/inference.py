@@ -100,6 +100,7 @@ class TargetDetection(BaseModel):
     title_score: float
     author_score: float
     call_number_score: float
+    call_number_suffix_match: Optional[bool] = None
 
 
 class TargetBookSearchResponse(BaseModel):
@@ -110,6 +111,7 @@ class TargetBookSearchResponse(BaseModel):
     second_best_score: Optional[float] = None
     score_margin: Optional[float] = None
     location_hint: Optional[str] = None
+    candidate_detections: List[TargetDetection] = Field(default_factory=list)
     detections: List[TargetDetection] = Field(default_factory=list)
 
 

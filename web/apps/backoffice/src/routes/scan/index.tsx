@@ -40,6 +40,13 @@ type TargetResult = {
     score: number;
     ocr_raw_text?: string | null;
   } | null;
+  candidate_detections: Array<{
+    detected_order: number;
+    bbox?: number[] | null;
+    score: number;
+    ocr_title?: string | null;
+    ocr_call_number?: string | null;
+  }>;
 };
 
 function apiUrl(path: string) {
@@ -130,12 +137,12 @@ function PatronBookFinder() {
     }
   };
 
-  const bbox = result?.best_detection?.bbox;
+  const highlightedDetections = result?.candidate_detections ?? [];
   const resultText =
     result?.status === "found"
       ? `찾았습니다. ${result.location_hint ?? "표시된 책을 확인하세요."}`
       : result?.status === "possible"
-        ? "비슷한 책을 찾았습니다. 표시된 책의 제목을 직접 확인하세요."
+        ? "후보가 2권 있습니다. 노란색으로 표시된 책의 제목을 확인하거나 가까이에서 다시 촬영하세요."
         : result
           ? "현재 사진에서는 목표 책을 찾지 못했습니다."
           : null;
@@ -277,17 +284,29 @@ function PatronBookFinder() {
             alt="촬영한 서가"
             className="block max-h-[60vh] w-full object-contain"
           />
-          {bbox && result?.status !== "not_found" ? (
-            <div
-              className="absolute border-4 border-red-500 bg-red-500/10"
-              style={{
-                left: `${(bbox[0] / imageSize.width) * 100}%`,
-                top: `${(bbox[1] / imageSize.height) * 100}%`,
-                width: `${((bbox[2] - bbox[0]) / imageSize.width) * 100}%`,
-                height: `${((bbox[3] - bbox[1]) / imageSize.height) * 100}%`,
-              }}
-            />
-          ) : null}
+          {highlightedDetections.map((detection, index) => {
+            const bbox = detection.bbox;
+            if (!bbox || bbox.length !== 4) return null;
+            const isPossible = result?.status === "possible";
+            return (
+              <div
+                key={detection.detected_order}
+                className={`absolute border-4 ${isPossible ? "border-amber-400 bg-amber-400/10" : "border-red-500 bg-red-500/10"}`}
+                style={{
+                  left: `${(bbox[0] / imageSize.width) * 100}%`,
+                  top: `${(bbox[1] / imageSize.height) * 100}%`,
+                  width: `${((bbox[2] - bbox[0]) / imageSize.width) * 100}%`,
+                  height: `${((bbox[3] - bbox[1]) / imageSize.height) * 100}%`,
+                }}
+              >
+                <span
+                  className={`absolute -top-7 left-0 px-2 py-1 text-xs font-bold text-white ${isPossible ? "bg-amber-500" : "bg-red-600"}`}
+                >
+                  후보 {index + 1}
+                </span>
+              </div>
+            );
+          })}
         </section>
       ) : null}
       {resultText ? (
