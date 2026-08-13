@@ -60,6 +60,9 @@ ShelfOps 대시보드          <--분석/판정 결과-- 도서관 장서 DB 매
 
 > 세부 실행 방법, 환경 변수, 코드 컨벤션은 각 레포의 `web/README.md`, `worker/README.md`를 참고하세요. 이 문서는 "왜 이렇게 만들었는가"에 초점을 둔 공모전 소개 문서입니다.
 
+대량 장서 적재 후 백오피스 검색 쿼리와 trigram 인덱스를 운영·검증하는 방법은
+[`docs/catalog-search-performance.md`](docs/catalog-search-performance.md)를 참고하세요.
+
 ## 6. 기술 구현 상세
 
 ### 책등 검출 모델 (YOLO)
