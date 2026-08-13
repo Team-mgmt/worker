@@ -166,6 +166,8 @@ class ScanArtifactService:
         response: MatchResponse,
         timings: dict[str, float],
         model_path: str | None,
+        model_sha256: str | None = None,
+        vision_provider: str = "local",
     ) -> str | None:
         if not self.enabled:
             return None
@@ -215,8 +217,9 @@ class ScanArtifactService:
                 },
                 "model": {
                     "detector_path": model_path,
-                    "detector_sha256": file_sha256(model_path) if model_path else None,
+                    "detector_sha256": model_sha256 or (file_sha256(model_path) if model_path else None),
                     "ocr": "PaddleOCR",
+                    "vision_provider": vision_provider,
                 },
                 "timings_seconds": timings,
                 "inference": inference_payload,

@@ -236,6 +236,63 @@ async def analyze_vision(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid image file: {exc}")
 
+    if settings.FAL_VISION_ENABLED:
+        from worker.services.remote_vision_service import RemoteVisionError, fal_vision_service
+
+        remote_items = None
+        try:
+            remote_started_at = time.perf_counter()
+            remote_items, detection_elapsed, ocr_elapsed, remote_model_sha256 = await fal_vision_service.analyze(
+                temp_path,
+                adaptive=True,
+            )
+            analyze_log(
+                f"[analyze_vision] fal vision done spines={len(remote_items)} "
+                f"detection={detection_elapsed:.1f}s ocr={ocr_elapsed:.1f}s "
+                f"round_trip={time.perf_counter() - remote_started_at:.1f}s"
+            )
+        except Exception as exc:
+            analyze_log(f"[analyze_vision] fal vision failed: {exc}")
+            if not settings.FAL_VISION_FALLBACK_LOCAL:
+                detail = str(exc) if isinstance(exc, RemoteVisionError) else "fal vision inference failed."
+                raise HTTPException(status_code=503, detail=detail) from exc
+            analyze_log("[analyze_vision] falling back to local vision")
+
+        if remote_items is not None:
+            req = ScanSessionRequest(
+                library_code=library_code,
+                room_name=room_name,
+                source_name=safe_filename,
+                ocr_results=remote_items,
+            )
+            match_started_at = time.perf_counter()
+            response = await process_scan_session_request(req, db, persist=False)
+            matching_elapsed = time.perf_counter() - match_started_at
+            try:
+                artifact_prefix = await scan_artifact_service.save_scan(
+                    run_id=run_id,
+                    image_path=temp_path,
+                    library_code=library_code,
+                    room_name=room_name,
+                    response=response,
+                    timings={
+                        "detection": round(detection_elapsed, 4),
+                        "ocr": round(ocr_elapsed, 4),
+                        "matching": round(matching_elapsed, 4),
+                        "fal_round_trip": round(time.perf_counter() - remote_started_at, 4),
+                        "total_before_artifact_upload": round(time.perf_counter() - request_started_at, 4),
+                    },
+                    model_path=None,
+                    model_sha256=remote_model_sha256,
+                    vision_provider="fal",
+                )
+                if artifact_prefix:
+                    response.artifact_run_id = run_id
+                    response.artifact_prefix = artifact_prefix
+            except Exception as exc:
+                analyze_log(f"[analyze_vision] artifact save failed; continuing without S3: {exc}")
+            return response
+
     detections = []
     detection_started_at = time.perf_counter()
     
@@ -463,6 +520,37 @@ async def find_target_book_in_image(
             image_width, image_height = image.size
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid image file: {exc}") from exc
+
+    if settings.FAL_VISION_ENABLED:
+        from worker.services.remote_vision_service import RemoteVisionError, fal_vision_service
+
+        remote_items = None
+        try:
+            remote_started_at = time.perf_counter()
+            remote_items, detection_elapsed, ocr_elapsed, _remote_model_sha256 = await fal_vision_service.analyze(
+                temp_path,
+                adaptive=False,
+            )
+            analyze_log(
+                f"spines={len(remote_items)} detection={detection_elapsed:.1f}s ocr={ocr_elapsed:.1f}s "
+                f"total={time.perf_counter() - request_started_at:.1f}s "
+                f"round_trip={time.perf_counter() - remote_started_at:.1f}s"
+            )
+        except Exception as exc:
+            analyze_log(f"[find_target_book] fal vision failed: {exc}")
+            if not settings.FAL_VISION_FALLBACK_LOCAL:
+                detail = str(exc) if isinstance(exc, RemoteVisionError) else "fal vision inference failed."
+                raise HTTPException(status_code=503, detail=detail) from exc
+            analyze_log("[find_target_book] falling back to local vision")
+
+        if remote_items is not None:
+            response = find_target_book(target, remote_items)
+            analyze_log(
+                f"[find_target_book] fal status={response.status} target={target.title!r} "
+                f"best_order={response.best_detection.detected_order if response.best_detection else None} "
+                f"score={response.best_detection.score if response.best_detection else 0.0:.1f}"
+            )
+            return response
 
     detection_started_at = time.perf_counter()
     if detector_service.is_ready:

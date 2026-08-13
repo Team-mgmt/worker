@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     OCR_MAX_FALLBACK_VARIANTS: int = 3
     OCR_CONTACT_SHEET_BATCH_SIZE: int = 6
     OCR_CONTACT_SHEET_GUTTER: int = 24
+    FAL_VISION_ENABLED: bool = False
+    FAL_VISION_ENDPOINT: str = ""
+    FAL_VISION_TIMEOUT_SECONDS: int = 90
+    FAL_VISION_FALLBACK_LOCAL: bool = True
     
     @property
     def async_database_url(self) -> str:

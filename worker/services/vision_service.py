@@ -41,7 +41,7 @@ class CropMetadata:
 
 
 class VisionService:
-    def __init__(self):
+    def __init__(self, device: str | None = None):
         if PaddleOCR is None:
             logger.warning("PaddleOCR is not installed. Vision Service will not work properly.")
             self.ocr = None
@@ -49,7 +49,7 @@ class VisionService:
             os.makedirs(PROJECT_CACHE_DIR, exist_ok=True)
             self.ocr = PaddleOCR(
                 lang="korean",
-                device="cpu",
+                device=device or os.getenv("PADDLE_OCR_DEVICE", "cpu"),
                 text_detection_model_name=os.getenv(
                     "PADDLE_OCR_DETECTION_MODEL",
                     "PP-OCRv5_mobile_det",
