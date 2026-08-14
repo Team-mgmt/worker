@@ -8,7 +8,6 @@ from rapidfuzz import fuzz
 from worker.schemas.inference import OCRResultItem, TargetBook, TargetBookSearchResponse, TargetDetection
 from worker.services.matching_service import split_call_number
 
-
 FOUND_SCORE = 82.0
 POSSIBLE_SCORE = 65.0
 MIN_FOUND_MARGIN = 10.0
@@ -17,6 +16,27 @@ EARLY_STOP_FIELD_SCORE = 90.0
 HANGUL_BASE = 0xAC00
 HANGUL_END = 0xD7A3
 COMPATIBILITY_INITIALS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+TITLE_BOILERPLATE = (
+    "청소년장편소설",
+    "장편소설",
+    "연작소설",
+    "청소년소설",
+    "단편소설",
+    "소설집",
+    "수필집",
+    "산문집",
+    "동화집",
+    "에세이",
+    "시집",
+    "소설",
+    "대활자본",
+    "큰글자책",
+    "글그림",
+    "글",
+    "그림",
+    "지음",
+    "옮김",
+)
 
 
 def normalize_match_text(value: str | None) -> str:
@@ -30,6 +50,50 @@ def text_similarity(first: str | None, second: str | None) -> float:
     if not left or not right:
         return 0.0
     return float(max(fuzz.ratio(left, right), fuzz.partial_ratio(left, right)))
+
+
+def _author_match_tokens(author: str | None) -> list[str]:
+    compact = normalize_match_text(author)
+    for phrase in TITLE_BOILERPLATE:
+        compact = compact.replace(normalize_match_text(phrase), "")
+    return [token for token in re.split(r"(?:외|등|역)", compact) if len(token) >= 2]
+
+
+def title_match_variants(value: str | None, author: str | None = None) -> list[str]:
+    """Return main-title variants without bibliographic boilerplate."""
+
+    normalized = unicodedata.normalize("NFKC", value or "").casefold()
+    main_title = re.split(r"[:：]", normalized, maxsplit=1)[0]
+    variants: list[str] = []
+    for alias in re.split(r"[=＝]", main_title):
+        compact = normalize_match_text(alias)
+        for author_token in _author_match_tokens(author):
+            compact = compact.replace(author_token, "")
+        for phrase in TITLE_BOILERPLATE:
+            compact = compact.replace(normalize_match_text(phrase), "")
+        if compact and compact not in variants:
+            variants.append(compact)
+    return variants
+
+
+def title_similarity(
+    target_title: str | None,
+    ocr_title: str | None,
+    target_author: str | None = None,
+    ocr_author: str | None = None,
+) -> float:
+    target_variants = title_match_variants(target_title, target_author)
+    ocr_variants = title_match_variants(ocr_title, ocr_author or target_author)
+    best = 0.0
+    for target_variant in target_variants:
+        for ocr_variant in ocr_variants:
+            ratio = float(fuzz.ratio(target_variant, ocr_variant))
+            length_ratio = min(len(target_variant), len(ocr_variant)) / max(len(target_variant), len(ocr_variant))
+            partial = 0.0
+            if min(len(target_variant), len(ocr_variant)) >= 3 and length_ratio >= 0.55:
+                partial = float(fuzz.partial_ratio(target_variant, ocr_variant)) * 0.95
+            best = max(best, ratio, partial)
+    return best
 
 
 def _initial_symbol(value: str) -> str:
@@ -79,7 +143,7 @@ def call_number_similarity(first: str | None, second: str | None) -> float:
 
 def score_target_detection(target: TargetBook, ocr: OCRResultItem) -> TargetDetection:
     title_source = ocr.title or ocr.raw_text
-    title_score = text_similarity(target.title, title_source)
+    title_score = title_similarity(target.title, title_source, target.author, ocr.author)
     author_score = text_similarity(target.author, ocr.author or ocr.raw_text)
     call_score, suffix_match = call_number_components(target.call_number, ocr.call_number)
 
@@ -89,6 +153,8 @@ def score_target_detection(target: TargetBook, ocr: OCRResultItem) -> TargetDete
             total_score -= 12.0
     else:
         total_score = (title_score * 0.8) + (author_score * 0.2)
+    if title_score < 35.0:
+        total_score = min(total_score, POSSIBLE_SCORE - 0.1)
     return TargetDetection(
         detected_order=ocr.detected_order,
         bbox=ocr.bbox,

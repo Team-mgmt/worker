@@ -1,6 +1,11 @@
 from worker.schemas.inference import OCRResultItem, TargetBook
-from worker.services.target_matching_service import call_number_similarity, find_target_book, is_confident_early_match
-
+from worker.services.target_matching_service import (
+    call_number_similarity,
+    find_target_book,
+    is_confident_early_match,
+    title_match_variants,
+    title_similarity,
+)
 
 TARGET = TargetBook(
     holding_id="holding-1",
@@ -103,3 +108,65 @@ def test_ambiguous_target_search_does_not_stop_early() -> None:
     )
 
     assert not is_confident_early_match(response, latest_order=13)
+
+
+def test_title_variants_remove_author_and_bibliographic_boilerplate() -> None:
+    assert title_match_variants("열외인종 잔혹사 : 주원규 장편소설", "주원규") == ["열외인종잔혹사"]
+    assert title_match_variants("코케인 = Cocaine : 진연주 장편소설", "진연주") == ["코케인", "cocaine"]
+
+
+def test_shared_author_and_novel_label_are_not_distinctive_title_evidence() -> None:
+    assert title_similarity(
+        "열외인종 잔혹사 : 주원규 장편소설",
+        "주원규 장편소설 망루",
+        "주원규",
+        "주원규",
+    ) < 35
+
+
+def test_different_joo_won_gyu_titles_do_not_select_the_same_neighbor() -> None:
+    shelf = [
+        ocr(16, "주원규 장편소설 망루", "813.6 주67ㅁ", "주원규"),
+        ocr(19, "열외인종 잔혹사 주원규 장편소설", "813.6 주67ㅇ", "주원규"),
+        ocr(20, "천하무적 불량야구단 주원규 장편소설", "813.6 주67ㅊ", "주원규"),
+    ]
+    outcast = find_target_book(
+        TargetBook(
+            holding_id="outcast",
+            title="열외인종 잔혹사 : 주원규 장편소설",
+            author="주원규",
+            call_number="813.6 주67ㅇ",
+        ),
+        shelf,
+    )
+    baseball = find_target_book(
+        TargetBook(
+            holding_id="baseball",
+            title="천하무적 불량야구단 : 주원규 장편소설",
+            author="주원규",
+            call_number="813.6 주67ㅊ",
+        ),
+        shelf,
+    )
+
+    assert outcast.status == "found"
+    assert outcast.best_detection is not None
+    assert outcast.best_detection.detected_order == 19
+    assert baseball.status == "found"
+    assert baseball.best_detection is not None
+    assert baseball.best_detection.detected_order == 20
+    assert next(item for item in outcast.detections if item.detected_order == 16).score < 65
+
+
+def test_generic_only_ocr_cannot_become_a_possible_match() -> None:
+    response = find_target_book(
+        TargetBook(
+            holding_id="outcast",
+            title="열외인종 잔혹사 : 주원규 장편소설",
+            author="주원규",
+            call_number="813.6 주67ㅇ",
+        ),
+        [ocr(16, "주원규 장편소설", "813.6 주67ㅇ", "주원규")],
+    )
+
+    assert response.status == "not_found"

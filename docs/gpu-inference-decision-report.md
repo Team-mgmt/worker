@@ -140,3 +140,11 @@ Run the same fixed dataset separately for user and administrator modes, and sepa
 - accuracy comparison against the unchanged CPU fallback using identical model SHA and OCR settings.
 
 The current measurements establish feasibility and a presentation configuration. They are not a replacement for the ground-truth evaluation harness.
+
+## Target-title matching safeguard
+
+Two user-mode failures selected the same neighboring spine with the same score for different books by the same author. Titles such as `열외인종 잔혹사 : 주원규 장편소설` and `천하무적 불량야구단 : 주원규 장편소설` shared the non-distinctive phrase `주원규 장편소설`, which could be overvalued by unrestricted partial-string similarity.
+
+Target matching now compares canonical main-title variants. It takes the text before a subtitle colon, supports either side of an `=` alternate title, removes the known author and bibliographic boilerplate such as `장편소설`, `소설집`, `시집`, `지음`, and `옮김`, and restricts partial matching when title lengths differ substantially. A candidate with a distinctive-title score below 35 cannot reach the `possible` threshold from author and call number alone. Regression tests preserve earlier correct matches and ensure that generic author/format text cannot identify a book.
+
+This is a conservative false-positive safeguard, not a calibrated final threshold. Its effect must be measured on stored target-search artifacts before changing the score cutoffs further.
