@@ -4,6 +4,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { Loader2Icon, LockKeyholeIcon } from "lucide-react";
 
+import { apiBaseUrl } from "@/lib/api-base-url";
 import { ADMIN_ORGANIZATION_ID } from "@/lib/constants";
 
 import { Button } from "@/components/ui/button";
@@ -37,15 +38,12 @@ function SignInPage() {
     setError("");
     setIsSubmitting(true);
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_BASE_URL}/auth/signin`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ email: email.trim(), password }),
-        },
-      );
+      const response = await fetch(`${apiBaseUrl}/auth/signin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
       if (!response.ok) {
         throw new Error(
           response.status === 400

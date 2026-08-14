@@ -2,6 +2,8 @@ import { createQueryKeys } from "@lukemorales/query-key-factory";
 
 import { UnauthorizedError } from "@shelfalign/client-common/error";
 
+import { apiBaseUrl } from "@/lib/api-base-url";
+
 export const authQueries = createQueryKeys("auth", {
   session: {
     queryKey: null,
@@ -13,18 +15,13 @@ export const authQueries = createQueryKeys("auth", {
 
       try {
         const organizationId = localStorage.getItem("organization");
-        const response = await fetch(
-          `${import.meta.env.VITE_BASE_URL}/auth/session`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              ...(organizationId
-                ? { "x-organization-id": organizationId }
-                : {}),
-            },
-            credentials: "include",
+        const response = await fetch(`${apiBaseUrl}/auth/session`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(organizationId ? { "x-organization-id": organizationId } : {}),
           },
-        );
+          credentials: "include",
+        });
 
         if (!response.ok) {
           throw new Error("Session request failed");
