@@ -86,6 +86,7 @@ class VisionService:
         preprocess: bool = False,
         crop_output_path: str | None = None,
         adaptive: bool = True,
+        force_fallback: bool = False,
     ) -> tuple[list[dict[str, Any]], CropMetadata]:
         if self.ocr is None:
             raise RuntimeError("PaddleOCR engine not initialized.")
@@ -126,7 +127,11 @@ class VisionService:
             encoded.tofile(output_path)
             saved_path = str(output_path)
 
-        extracted, diagnostics = self._adaptive_ocr(cropped, adaptive=adaptive)
+        extracted, diagnostics = self._adaptive_ocr(
+            cropped,
+            adaptive=adaptive,
+            force_fallback=force_fallback,
+        )
         metadata = CropMetadata(
             method=method,
             size=[int(cropped.shape[1]), int(cropped.shape[0])],
@@ -251,6 +256,7 @@ class VisionService:
         cropped: np.ndarray,
         *,
         adaptive: bool = True,
+        force_fallback: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         candidates: list[tuple[str, list[dict[str, Any]]]] = []
 
@@ -262,7 +268,11 @@ class VisionService:
         needs_fallback = (
             adaptive
             and settings.OCR_ENABLE_ADAPTIVE_FALLBACK
-            and (primary_confidence < settings.OCR_FALLBACK_CONFIDENCE or not self._has_call_number(primary_text))
+            and (
+                force_fallback
+                or primary_confidence < settings.OCR_FALLBACK_CONFIDENCE
+                or not self._has_call_number(primary_text)
+            )
         )
 
         label_result: list[dict[str, Any]] = []
@@ -289,7 +299,8 @@ class VisionService:
             for name, image in variants[: max(0, settings.OCR_MAX_FALLBACK_VARIANTS)]:
                 candidates.append((name, self._run_ocr(image)))
 
-        variant, best = max(candidates, key=lambda item: self._candidate_score(item[1]))
+        candidate_score = self._text_candidate_score if force_fallback else self._candidate_score
+        variant, best = max(candidates, key=lambda item: candidate_score(item[1]))
         best_text = self._join_text(best)
         if label_text and self._has_call_number(label_text) and label_text not in best_text:
             best = [*best, *label_result]
@@ -344,6 +355,14 @@ class VisionService:
         text = cls._join_text(extracted)
         confidence = cls._average_confidence(extracted) or 0.0
         return (1 if cls._has_call_number(text) else 0, confidence, len(text))
+
+    @classmethod
+    def _text_candidate_score(cls, extracted: list[dict[str, Any]]) -> tuple[int, float, int]:
+        """Prefer title-bearing text for a target-search precision retry."""
+
+        text = cls._join_text(extracted)
+        confidence = cls._average_confidence(extracted) or 0.0
+        return (len(text), confidence, 1 if cls._has_call_number(text) else 0)
 
     @staticmethod
     def _offset_results(extracted: list[dict[str, Any]], offset_x: int, offset_y: int) -> list[dict[str, Any]]:

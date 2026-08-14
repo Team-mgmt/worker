@@ -162,6 +162,7 @@ class ShelfAlignVision:
                         crop_rect=detection.bbox,
                         obb_polygon=detection.polygon if detection.is_obb else None,
                         adaptive=True,
+                        force_fallback=True,
                     )
                     raw_text = self.vision._join_text(extracted)
 

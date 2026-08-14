@@ -69,6 +69,32 @@ def test_fast_ocr_never_runs_label_or_fallback_variants(monkeypatch: pytest.Monk
     assert diagnostics["label_text"] is None
 
 
+def test_forced_fallback_prefers_title_text_even_when_primary_label_is_confident(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = VisionService.__new__(VisionService)
+    responses = iter(
+        [
+            [ocr_item("노원정보 문학 813.6 주67ㅊ", 0.98)],
+            [ocr_item("813.6 주67ㅊ", 0.99)],
+            [ocr_item("천하무적 불량야구단 주원규 장편소설", 0.86)],
+            [ocr_item("천하무적 불량야구단", 0.92)],
+            [ocr_item("불량야구단", 0.90)],
+        ]
+    )
+    monkeypatch.setattr(service, "_run_ocr", lambda _image: next(responses))
+
+    extracted, diagnostics = service._adaptive_ocr(
+        np.zeros((100, 30, 3), dtype=np.uint8),
+        force_fallback=True,
+    )
+
+    assert diagnostics["attempt_count"] == 5
+    assert diagnostics["variant"] == "clahe_sharpen+label"
+    assert "천하무적 불량야구단" in service._join_text(extracted)
+    assert "813.6 주67ㅊ" in service._join_text(extracted)
+
+
 def test_contact_sheet_distributes_text_back_to_each_spine() -> None:
     crops = [
         np.zeros((20, 10, 3), dtype=np.uint8),
