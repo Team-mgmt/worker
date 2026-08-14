@@ -92,7 +92,7 @@ class VisionOutput(BaseModel):
     gpu="L4",
     min_containers=0,
     max_containers=1,
-    scaledown_window=20,
+    scaledown_window=600,
     timeout=180,
     startup_timeout=300,
     volumes={"/root/.paddlex": model_cache},

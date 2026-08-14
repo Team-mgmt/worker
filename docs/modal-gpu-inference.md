@@ -33,4 +33,4 @@ sudo journalctl -u shelfalign-worker.service -f --no-pager -o cat | \
   grep --line-buffered -Ei 'remote vision|find_target_book|matching|OCR failed'
 ```
 
-The app uses one L4, scales to zero, caps at one container, and stays warm for 20 seconds. The Paddle model cache persists in a Modal Volume. Compare the same fixed images before and after enabling Modal. Record total, remote round-trip, detection and OCR latency, target Top-1 accuracy, administrator matching accuracy, and Modal cost. Keep the workspace budget enabled.
+The app uses one L4, scales to zero, caps at one container, and stays warm for 10 minutes after the last request. The Paddle model cache persists in a Modal Volume. Compare the same fixed images before and after enabling Modal. Record total, remote round-trip, detection and OCR latency, target Top-1 accuracy, administrator matching accuracy, and Modal cost. Keep the workspace budget enabled.
