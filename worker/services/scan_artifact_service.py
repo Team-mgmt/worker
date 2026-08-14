@@ -14,8 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from worker.core.config import settings
 from worker.schemas.artifact_evaluation import ArtifactRunSummary
-from worker.schemas.inference import MatchResponse
-
+from worker.schemas.inference import MatchResponse, OCRResultItem, TargetBookSearchResponse
 
 SAFE_KEY_PART = re.compile(r"[^a-zA-Z0-9._-]+")
 
@@ -299,6 +298,87 @@ class ScanArtifactService:
             )
         return prefix
 
+    async def save_target_search(
+        self,
+        *,
+        run_id: str,
+        image_path: Path,
+        library_code: str,
+        response: TargetBookSearchResponse,
+        ocr_results: list[OCRResultItem],
+        timings: dict[str, float],
+        model_path: str | None,
+        model_sha256: str | None = None,
+        vision_provider: str = "local",
+        created_at: datetime | None = None,
+    ) -> str | None:
+        """Persist one user-mode target search for later failure analysis."""
+
+        if not self.enabled:
+            return None
+
+        created_at = created_at or datetime.now(UTC)
+        prefix = self.build_prefix(library_code, run_id, created_at)
+        original_suffix = image_path.suffix.lower() if image_path.suffix else ".jpg"
+        original_key = f"{prefix}/original{original_suffix}"
+        annotated_key = f"{prefix}/annotated.jpg"
+
+        with Image.open(image_path) as source:
+            image = source.convert("RGB")
+
+        session = aioboto3.Session()
+        async with session.client("s3", region_name=settings.AWS_REGION) as client:
+            await self._put_bytes(client, original_key, image_path.read_bytes(), self._content_type(original_suffix))
+            await self._put_image(client, annotated_key, self._annotate_target_search(image, response))
+
+            crop_keys: dict[int, str] = {}
+            if settings.SCAN_ARTIFACTS_SAVE_CROPS:
+                for item in ocr_results:
+                    crop = self._crop(image, item.bbox)
+                    if crop is None:
+                        continue
+                    crop_key = f"{prefix}/crops/{item.detected_order:03d}.jpg"
+                    await self._put_image(client, crop_key, crop)
+                    crop_keys[item.detected_order] = crop_key
+
+            inference_results = [item.model_dump(mode="json") for item in ocr_results]
+            for item in inference_results:
+                item["crop_image_key"] = crop_keys.get(item["detected_order"])
+
+            target_payload = response.model_dump(
+                mode="json",
+                exclude={"artifact_run_id", "artifact_prefix"},
+            )
+            result_payload: dict[str, Any] = {
+                "schema_version": "1.0",
+                "mode": "target_search",
+                "run_id": run_id,
+                "created_at": created_at.isoformat(),
+                "library": {"code": library_code, "room_name": None},
+                "artifacts": {
+                    "original_key": original_key,
+                    "annotated_key": annotated_key,
+                    "crop_keys": {str(order): key for order, key in crop_keys.items()},
+                    "ground_truth_key": f"{prefix}/ground-truth.json",
+                },
+                "model": {
+                    "detector_path": model_path,
+                    "detector_sha256": model_sha256 or (file_sha256(model_path) if model_path else None),
+                    "ocr": "PaddleOCR",
+                    "vision_provider": vision_provider,
+                },
+                "timings_seconds": timings,
+                "target_search": target_payload,
+                "inference": {"results": inference_results},
+            }
+            await self._put_bytes(
+                client,
+                f"{prefix}/result.json",
+                json.dumps(result_payload, ensure_ascii=False, indent=2).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+        return prefix
+
     async def _put_bytes(self, client: Any, key: str, body: bytes, content_type: str) -> None:
         await client.put_object(
             Bucket=settings.S3_BUCKET_NAME,
@@ -364,6 +444,38 @@ class ScanArtifactService:
             else:
                 draw.rectangle(box, outline=color, width=width)
             label = f"{result.detected_order} {result.decision} {result.match_score or 0:.1f}"
+            text_box = draw.textbbox((box[0], box[1]), label, font=font)
+            draw.rectangle(text_box, fill=color)
+            draw.text((box[0], box[1]), label, fill="white", font=font)
+        return annotated
+
+    @staticmethod
+    def _annotate_target_search(image: Image.Image, response: TargetBookSearchResponse) -> Image.Image:
+        annotated = image.copy()
+        draw = ImageDraw.Draw(annotated)
+        font = ImageFont.load_default()
+        width = max(2, round(min(image.size) / 300))
+        candidate_orders = {
+            item.detected_order: rank
+            for rank, item in enumerate(response.candidate_detections, start=1)
+        }
+
+        for item in sorted(response.detections, key=lambda value: value.detected_order):
+            if not item.bbox or len(item.bbox) != 4:
+                continue
+            rank = candidate_orders.get(item.detected_order)
+            color = "#f59e0b" if rank else "#71717a"
+            if response.status == "found" and rank == 1:
+                color = "#16a34a"
+            box = tuple(round(value) for value in item.bbox)
+            if item.obb_polygon and len(item.obb_polygon) == 4:
+                polygon = [(round(point[0]), round(point[1])) for point in item.obb_polygon]
+                draw.line([*polygon, polygon[0]], fill=color, width=width, joint="curve")
+            else:
+                draw.rectangle(box, outline=color, width=width)
+            label = f"{item.detected_order} score={item.score:.1f}"
+            if rank:
+                label = f"TOP{rank} {label}"
             text_box = draw.textbbox((box[0], box[1]), label, font=font)
             draw.rectangle(text_box, fill=color)
             draw.text((box[0], box[1]), label, fill="white", font=font)

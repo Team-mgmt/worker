@@ -34,3 +34,13 @@ sudo journalctl -u shelfalign-worker.service -f --no-pager -o cat | \
 ```
 
 The app uses one L4, scales to zero, caps at one container, and stays warm for 10 minutes after the last request. The Paddle model cache persists in a Modal Volume. Compare the same fixed images before and after enabling Modal. Record total, remote round-trip, detection and OCR latency, target Top-1 accuracy, administrator matching accuracy, and Modal cost. Keep the workspace budget enabled.
+
+## User-mode artifacts
+
+`POST /inference/find_target_book` stores its diagnostics under the same date-partitioned scan prefix when scan artifact storage is enabled:
+
+```text
+shelfalign/scans/{library_code}/{year}/{month}/{day}/{run_id}/
+```
+
+The run contains the original and annotated images, optional per-spine crops, and `result.json`. User-mode results set `mode` to `target_search`. The `target_search` object contains the selected catalog book, Top-1/Top-2 candidates, every scored detection, and the title/author/call-number component scores. `inference.results` preserves the complete OCR and detection diagnostics so that the existing polygon ground-truth flow remains usable. A failed S3 upload is logged and does not fail the user search response.

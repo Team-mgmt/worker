@@ -1,18 +1,19 @@
-import json
 import base64
-from io import BytesIO
+import json
 import os
 import re
 import time
-from uuid import uuid4
+from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
+from uuid import uuid4
 
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from PIL import Image
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from worker.core.database import get_db
 from worker.core.config import settings
+from worker.core.database import get_db
 from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest, TargetBook, TargetBookSearchResponse, VideoAnalysisResponse, VideoFrameQuality
 from worker.services.detection_service import SpineDetection, detector_service
 from worker.services.inference_service import process_scan_session_request
@@ -38,6 +39,17 @@ def analyze_log(message: str) -> None:
             log_file.write(line + "\n")
     except Exception:
         pass
+
+
+async def save_target_search_artifacts(**kwargs) -> None:
+    """Upload user-mode diagnostics after the HTTP response is ready."""
+
+    try:
+        artifact_prefix = await scan_artifact_service.save_target_search(**kwargs)
+        if artifact_prefix:
+            analyze_log(f"[find_target_book] artifacts saved prefix={artifact_prefix}")
+    except Exception as exc:
+        analyze_log(f"[find_target_book] artifact save failed; continuing without S3: {exc}")
 
 
 @router.post("/scan", response_model=MatchResponse)
@@ -482,8 +494,10 @@ async def analyze_vision(
 
 @router.post("/find_target_book", response_model=TargetBookSearchResponse)
 async def find_target_book_in_image(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     holding_id: str = Form(...),
+    library_code: str = Form(default="unknown"),
     target_title: str = Form(...),
     target_author: str | None = Form(default=None),
     target_call_number: str | None = Form(default=None),
@@ -544,12 +558,38 @@ async def find_target_book_in_image(
             analyze_log("[find_target_book] falling back to local vision")
 
         if remote_items is not None:
+            matching_started_at = time.perf_counter()
             response = find_target_book(target, remote_items)
+            matching_elapsed = time.perf_counter() - matching_started_at
             analyze_log(
                 f"[find_target_book] remote provider={settings.REMOTE_VISION_PROVIDER} status={response.status} target={target.title!r} "
                 f"best_order={response.best_detection.detected_order if response.best_detection else None} "
                 f"score={response.best_detection.score if response.best_detection else 0.0:.1f}"
             )
+            if scan_artifact_service.enabled:
+                artifact_created_at = datetime.now(UTC)
+                artifact_prefix = scan_artifact_service.build_prefix(library_code, run_id, artifact_created_at)
+                response.artifact_run_id = run_id
+                response.artifact_prefix = artifact_prefix
+                background_tasks.add_task(
+                    save_target_search_artifacts,
+                    run_id=run_id,
+                    image_path=temp_path,
+                    library_code=library_code,
+                    response=response,
+                    ocr_results=remote_items,
+                    timings={
+                        "detection": round(detection_elapsed, 4),
+                        "ocr": round(ocr_elapsed, 4),
+                        "matching": round(matching_elapsed, 4),
+                        "remote_round_trip": round(time.perf_counter() - remote_started_at, 4),
+                        "total_before_artifact_upload": round(time.perf_counter() - request_started_at, 4),
+                    },
+                    model_path=None,
+                    model_sha256=_remote_model_sha256,
+                    vision_provider=settings.REMOTE_VISION_PROVIDER,
+                    created_at=artifact_created_at,
+                )
             return response
 
     detection_started_at = time.perf_counter()
@@ -642,7 +682,9 @@ async def find_target_book_in_image(
 
     ocr_elapsed = time.perf_counter() - ocr_started_at
 
+    matching_started_at = time.perf_counter()
     response = find_target_book(target, ocr_results)
+    matching_elapsed = time.perf_counter() - matching_started_at
     analyze_log(
         f"[find_target_book] status={response.status} target={target.title!r} "
         f"best_order={response.best_detection.detected_order if response.best_detection else None} "
@@ -650,6 +692,27 @@ async def find_target_book_in_image(
         f"spines={len(detections)} ocr_spines={len(ocr_results)} detection={detection_elapsed:.1f}s "
         f"ocr={ocr_elapsed:.1f}s total={time.perf_counter() - request_started_at:.1f}s"
     )
+    if scan_artifact_service.enabled:
+        artifact_created_at = datetime.now(UTC)
+        artifact_prefix = scan_artifact_service.build_prefix(library_code, run_id, artifact_created_at)
+        response.artifact_run_id = run_id
+        response.artifact_prefix = artifact_prefix
+        background_tasks.add_task(
+            save_target_search_artifacts,
+            run_id=run_id,
+            image_path=temp_path,
+            library_code=library_code,
+            response=response,
+            ocr_results=ocr_results,
+            timings={
+                "detection": round(detection_elapsed, 4),
+                "ocr": round(ocr_elapsed, 4),
+                "matching": round(matching_elapsed, 4),
+                "total_before_artifact_upload": round(time.perf_counter() - request_started_at, 4),
+            },
+            model_path=detector_service.model_path if detector_service.is_ready else None,
+            created_at=artifact_created_at,
+        )
     return response
 
 

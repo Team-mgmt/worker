@@ -113,6 +113,8 @@ class TargetBookSearchResponse(BaseModel):
     location_hint: Optional[str] = None
     candidate_detections: List[TargetDetection] = Field(default_factory=list)
     detections: List[TargetDetection] = Field(default_factory=list)
+    artifact_run_id: Optional[str] = None
+    artifact_prefix: Optional[str] = None
 
 
 class VideoFrameQuality(BaseModel):

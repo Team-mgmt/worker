@@ -116,6 +116,7 @@ function PatronBookFinder() {
       const body = new FormData();
       body.set("file", file);
       body.set("holding_id", target.id);
+      body.set("library_code", libraryCode);
       body.set("target_title", target.book.bookname);
       if (target.book.authors) body.set("target_author", target.book.authors);
       if (target.callNumber) body.set("target_call_number", target.callNumber);
