@@ -1,5 +1,7 @@
 import re
-from typing import List, Optional, Tuple
+import unicodedata
+from collections.abc import Iterable, Mapping
+from typing import Any, List, Optional, Tuple
 
 from rapidfuzz import fuzz
 from sqlalchemy import or_, text
@@ -9,8 +11,14 @@ from sqlalchemy.future import select
 from worker.db_models.catalog import Book, Holding
 from worker.schemas.inference import DetectionResult, EstimatedShelf, MatchCandidate, OCRResultItem
 
-
 MIN_CONFIRMED_MATCH_SCORE = 75.0
+
+
+def normalize_catalog_text(value: str | None) -> str:
+    """Match the NFKC/whitespace normalization used by the catalog importer."""
+    if not value:
+        return ""
+    return " ".join(unicodedata.normalize("NFKC", value).split()).lower()
 
 
 def split_call_number(call_number: str) -> Tuple[str, str]:
@@ -159,6 +167,47 @@ async def find_matches_for_ocr_from_prisma_catalog(
     ocr_class_no, ocr_book_code = split_call_number(ocr_item.call_number or "")
     prefix = ocr_class_no[:2] if len(ocr_class_no) >= 2 else ocr_class_no[:1]
 
+    select_columns = """
+          h.id AS holding_id,
+          h."classNo" AS class_no,
+          h."classNoClean" AS class_no_clean,
+          h."bookCode" AS book_code,
+          h."callNumber" AS call_number,
+          b.id AS book_id,
+          b.bookname AS bookname,
+          b."normalizedBookname" AS normalized_bookname,
+          b.authors AS authors,
+          b."normalizedAuthors" AS normalized_authors
+    """
+
+    normalized_call_number = normalize_catalog_text(ocr_item.call_number)
+    if normalized_call_number:
+        exact_stmt = text(
+            f"""
+            SELECT {select_columns}
+            FROM "LibraryHolding" h
+            JOIN "LibraryBook" b ON b.id = h."bookId"
+            WHERE h."libraryCode" = :library_code
+              AND h."normalizedCallNumber" = :normalized_call_number
+            """
+        )
+        try:
+            exact_result = await session.execute(
+                exact_stmt,
+                {
+                    "library_code": library_code,
+                    "normalized_call_number": normalized_call_number,
+                },
+            )
+            exact_rows = exact_result.mappings().all()
+        except Exception as exc:
+            print(f"[matching] exact catalog query failed: {exc}", flush=True)
+            await session.rollback()
+            exact_rows = []
+
+        if exact_rows:
+            return score_catalog_rows(exact_rows, ocr_item, ocr_class_no, ocr_book_code)
+
     where_parts = ['h."libraryCode" = :library_code']
     params: dict[str, str] = {"library_code": library_code}
     if prefix:
@@ -170,17 +219,7 @@ async def find_matches_for_ocr_from_prisma_catalog(
 
     stmt = text(
         f"""
-        SELECT
-          h.id AS holding_id,
-          h."classNo" AS class_no,
-          h."classNoClean" AS class_no_clean,
-          h."bookCode" AS book_code,
-          h."callNumber" AS call_number,
-          b.id AS book_id,
-          b.bookname AS bookname,
-          b."normalizedBookname" AS normalized_bookname,
-          b.authors AS authors,
-          b."normalizedAuthors" AS normalized_authors
+        SELECT {select_columns}
         FROM "LibraryHolding" h
         JOIN "LibraryBook" b ON b.id = h."bookId"
         WHERE {" AND ".join(where_parts)}
@@ -195,8 +234,17 @@ async def find_matches_for_ocr_from_prisma_catalog(
         await session.rollback()
         return []
 
-    candidates: List[MatchCandidate] = []
-    for row in result.mappings():
+    return score_catalog_rows(result.mappings(), ocr_item, ocr_class_no, ocr_book_code)
+
+
+def score_catalog_rows(
+    rows: Iterable[Mapping[str, Any]],
+    ocr_item: OCRResultItem,
+    ocr_class_no: str,
+    ocr_book_code: str,
+) -> list[MatchCandidate]:
+    candidates: list[MatchCandidate] = []
+    for row in rows:
         score_class = compute_similarity(ocr_class_no, row["class_no_clean"] or row["class_no"])
         score_bcode = compute_similarity(ocr_book_code, row["book_code"])
         score_title = compute_similarity(ocr_item.title or ocr_item.raw_text, row["normalized_bookname"] or row["bookname"])
