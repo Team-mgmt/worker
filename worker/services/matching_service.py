@@ -1,6 +1,8 @@
 import re
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
+from math import log, sqrt
 from typing import Any, List, Optional, Tuple
 
 from rapidfuzz import fuzz
@@ -12,6 +14,12 @@ from worker.db_models.catalog import Book, Holding
 from worker.schemas.inference import DetectionResult, EstimatedShelf, MatchCandidate, OCRResultItem
 
 MIN_CONFIRMED_MATCH_SCORE = 75.0
+_TITLE_BOILERPLATE_PATTERN = re.compile(
+    r"(?:장편\s*소설|연작\s*소설|청소년\s*소설|소설집|시집|에세이|대활자본|"
+    r"수상작|지음|글(?:\s*[·ㆍ/]\s*그림)?|옮김)",
+    re.IGNORECASE,
+)
+_TITLE_PUNCTUATION_PATTERN = re.compile(r"[^0-9a-z가-힣ㄱ-ㅎㅏ-ㅣ]+", re.IGNORECASE)
 
 
 def normalize_catalog_text(value: str | None) -> str:
@@ -19,6 +27,70 @@ def normalize_catalog_text(value: str | None) -> str:
     if not value:
         return ""
     return " ".join(unicodedata.normalize("NFKC", value).split()).lower()
+
+
+def normalize_core_title(value: str | None, author: str | None = None) -> str:
+    """Keep title-identifying words while removing common bibliographic suffixes."""
+    normalized = normalize_catalog_text(value)
+    if not normalized:
+        return ""
+
+    # Catalog titles conventionally put responsibility/genre statements after a colon.
+    normalized = re.split(r"\s*[:：]\s*", normalized, maxsplit=1)[0]
+    normalized_author = normalize_catalog_text(author)
+    if normalized_author:
+        normalized = normalized.replace(normalized_author, " ")
+    normalized = _TITLE_BOILERPLATE_PATTERN.sub(" ", normalized)
+    normalized = _TITLE_PUNCTUATION_PATTERN.sub(" ", normalized)
+    return " ".join(normalized.split())
+
+
+def _character_ngrams(value: str) -> Counter[str]:
+    compact = value.replace(" ", "")
+    if not compact:
+        return Counter()
+    sizes = (1,) if len(compact) < 2 else (2, 3)
+    return Counter(
+        compact[index : index + size]
+        for size in sizes
+        for index in range(len(compact) - size + 1)
+    )
+
+
+def character_ngram_tfidf_cosines(query: str, documents: Sequence[str]) -> list[float]:
+    """Return corpus-local character n-gram TF-IDF cosine similarities."""
+    query_terms = _character_ngrams(query)
+    document_terms = [_character_ngrams(document) for document in documents]
+    if not query_terms:
+        return [0.0] * len(documents)
+
+    all_documents = [query_terms, *document_terms]
+    document_frequency = Counter(
+        term for terms in all_documents for term in terms
+    )
+    document_count = len(all_documents)
+
+    def vector(terms: Counter[str]) -> dict[str, float]:
+        return {
+            term: frequency * (log((document_count + 1) / (document_frequency[term] + 1)) + 1.0)
+            for term, frequency in terms.items()
+        }
+
+    query_vector = vector(query_terms)
+    query_norm = sqrt(sum(weight * weight for weight in query_vector.values()))
+    similarities: list[float] = []
+    for terms in document_terms:
+        document_vector = vector(terms)
+        document_norm = sqrt(sum(weight * weight for weight in document_vector.values()))
+        if not query_norm or not document_norm:
+            similarities.append(0.0)
+            continue
+        dot_product = sum(
+            weight * document_vector.get(term, 0.0)
+            for term, weight in query_vector.items()
+        )
+        similarities.append(dot_product / (query_norm * document_norm))
+    return similarities
 
 
 def split_call_number(call_number: str) -> Tuple[str, str]:
@@ -216,6 +288,12 @@ async def find_matches_for_ocr_from_prisma_catalog(
     if ocr_book_code and has_reliable_book_code(ocr_book_code):
         where_parts.append('h."bookCode" LIKE :book_code_prefix')
         params["book_code_prefix"] = f"{ocr_book_code[0]}%"
+    if not prefix:
+        core_title = normalize_core_title(ocr_item.title, ocr_item.author)
+        if len(core_title.replace(" ", "")) < 2:
+            return []
+        where_parts.append('b."normalizedBookname" ILIKE :title_pattern')
+        params["title_pattern"] = f"%{core_title}%"
 
     stmt = text(
         f"""
@@ -243,11 +321,25 @@ def score_catalog_rows(
     ocr_class_no: str,
     ocr_book_code: str,
 ) -> list[MatchCandidate]:
+    materialized_rows = list(rows)
+    query_title = normalize_core_title(ocr_item.title or ocr_item.raw_text, ocr_item.author)
+    candidate_titles = [
+        normalize_core_title(row["normalized_bookname"] or row["bookname"], row["authors"])
+        for row in materialized_rows
+    ]
+    cosine_scores = character_ngram_tfidf_cosines(query_title, candidate_titles)
+
     candidates: list[MatchCandidate] = []
-    for row in rows:
+    for row, candidate_title, cosine_score in zip(
+        materialized_rows,
+        candidate_titles,
+        cosine_scores,
+        strict=True,
+    ):
         score_class = compute_similarity(ocr_class_no, row["class_no_clean"] or row["class_no"])
         score_bcode = compute_similarity(ocr_book_code, row["book_code"])
-        score_title = compute_similarity(ocr_item.title or ocr_item.raw_text, row["normalized_bookname"] or row["bookname"])
+        fuzzy_core_score = float(fuzz.ratio(query_title.replace(" ", ""), candidate_title.replace(" ", "")))
+        score_title = (cosine_score * 70.0) + (fuzzy_core_score * 0.3)
         score_author = compute_similarity(ocr_item.author, row["normalized_authors"] or row["authors"])
         total_score, match_method = compute_total_score(
             score_class,
