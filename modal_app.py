@@ -60,6 +60,9 @@ app = modal.App(APP_NAME)
 class VisionInput(BaseModel):
     image_base64: str
     adaptive: bool = True
+    target_title: str | None = None
+    target_author: str | None = None
+    target_call_number: str | None = None
 
 
 class VisionItem(BaseModel):
@@ -85,6 +88,8 @@ class VisionOutput(BaseModel):
     detection_seconds: float = Field(ge=0.0)
     ocr_seconds: float = Field(ge=0.0)
     model_sha256: str
+    precision_retry_orders: list[int] = Field(default_factory=list)
+    precision_ocr_seconds: float = Field(default=0.0, ge=0.0)
 
 
 @app.cls(
@@ -118,7 +123,9 @@ class ShelfAlignVision:
         model_cache.commit()
 
     def _analyze(self, request: VisionInput) -> VisionOutput:
+        from worker.schemas.inference import OCRResultItem, TargetBook
         from worker.services.ocr_field_parser import extract_ocr_fields
+        from worker.services.target_matching_service import select_precision_ocr_orders
 
         try:
             image_bytes = base64.b64decode(request.image_base64, validate=True)
@@ -179,11 +186,53 @@ class ShelfAlignVision:
                     )
                 )
 
+            precision_retry_orders: list[int] = []
+            precision_ocr_seconds = 0.0
+            if request.target_title:
+                target = TargetBook(
+                    holding_id="remote-target",
+                    title=request.target_title,
+                    author=request.target_author,
+                    call_number=request.target_call_number,
+                )
+                fast_results = [OCRResultItem.model_validate(item.model_dump()) for item in items]
+                precision_retry_orders = select_precision_ocr_orders(target, fast_results)
+                precision_started = time.perf_counter()
+                for order in precision_retry_orders:
+                    detection = detections[order - 1]
+                    extracted, crop = self.vision.crop_and_ocr(
+                        str(image_path),
+                        crop_rect=detection.bbox,
+                        obb_polygon=detection.polygon if detection.is_obb else None,
+                        adaptive=True,
+                    )
+                    raw_text = self.vision._join_text(extracted)
+                    title, author, call_number = extract_ocr_fields(raw_text)
+                    original = items[order - 1]
+                    items[order - 1] = original.model_copy(
+                        update={
+                            "raw_text": raw_text,
+                            "title": title,
+                            "author": author,
+                            "call_number": call_number or None,
+                            "ocr_confidence": self.vision._average_confidence(extracted),
+                            "crop_method": crop.method,
+                            "crop_size": crop.size,
+                            "ocr_variant": crop.ocr_variant,
+                            "ocr_attempt_count": crop.attempt_count,
+                            "ocr_label_text": crop.label_text,
+                            "ocr_label_confidence": crop.label_confidence,
+                        }
+                    )
+                precision_ocr_seconds = time.perf_counter() - precision_started
+
         return VisionOutput(
             items=items,
             detection_seconds=detection_seconds,
             ocr_seconds=time.perf_counter() - ocr_started,
             model_sha256=self.model_sha256,
+            precision_retry_orders=precision_retry_orders,
+            precision_ocr_seconds=precision_ocr_seconds,
         )
 
     @modal.method()

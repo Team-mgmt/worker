@@ -3,6 +3,7 @@ from worker.services.target_matching_service import (
     call_number_similarity,
     find_target_book,
     is_confident_early_match,
+    select_precision_ocr_orders,
     title_match_variants,
     title_similarity,
 )
@@ -170,3 +171,25 @@ def test_generic_only_ocr_cannot_become_a_possible_match() -> None:
     )
 
     assert response.status == "not_found"
+
+
+def test_precision_ocr_selects_call_number_neighbors_only_after_not_found() -> None:
+    target = TargetBook(
+        holding_id="baseball",
+        title="천하무적 불량야구단 : 주원규 장편소설",
+        author="주원규",
+        call_number="813.6 주67ㅊ",
+    )
+    failed_fast_ocr = [
+        ocr(16, "주원규 장편소설 망루", "813.6 주67ㅁ", "주원규"),
+        ocr(20, "I 제 U Unabl 구면", "813.6 주67츠", None),
+        ocr(31, "커피 먹는 염소", "813.6 진77ㅋ", "진주현"),
+    ]
+
+    assert select_precision_ocr_orders(target, failed_fast_ocr) == [20, 16]
+
+    successful_fast_ocr = [
+        *failed_fast_ocr,
+        ocr(21, "천하무적 불량야구단", "813.6 주67ㅊ", "주원규"),
+    ]
+    assert select_precision_ocr_orders(target, successful_fast_ocr) == []

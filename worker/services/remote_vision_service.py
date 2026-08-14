@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from worker.core.config import settings
-from worker.schemas.inference import OCRResultItem
+from worker.schemas.inference import OCRResultItem, TargetBook
 
 
 class RemoteVisionError(RuntimeError):
@@ -45,6 +45,8 @@ class RemoteVisionResponse(BaseModel):
     detection_seconds: float = Field(ge=0.0)
     ocr_seconds: float = Field(ge=0.0)
     model_sha256: str
+    precision_retry_orders: list[int] = Field(default_factory=list)
+    precision_ocr_seconds: float = Field(default=0.0, ge=0.0)
 
 
 class RemoteVisionService:
@@ -52,7 +54,13 @@ class RemoteVisionService:
     def enabled(self) -> bool:
         return settings.REMOTE_VISION_ENABLED
 
-    async def analyze(self, image_path: Path, *, adaptive: bool) -> tuple[list[OCRResultItem], float, float, str]:
+    async def analyze(
+        self,
+        image_path: Path,
+        *,
+        adaptive: bool,
+        target: TargetBook | None = None,
+    ) -> tuple[list[OCRResultItem], float, float, str, list[int], float]:
         endpoint = settings.REMOTE_VISION_ENDPOINT.strip()
         if not endpoint:
             raise RemoteVisionError("REMOTE_VISION_ENDPOINT is empty.")
@@ -64,10 +72,22 @@ class RemoteVisionService:
         started_at = time.perf_counter()
         try:
             encoded_image = base64.b64encode(image_path.read_bytes()).decode("ascii")
+            request_payload: dict[str, object] = {
+                "image_base64": encoded_image,
+                "adaptive": adaptive,
+            }
+            if target is not None:
+                request_payload.update(
+                    {
+                        "target_title": target.title,
+                        "target_author": target.author,
+                        "target_call_number": target.call_number,
+                    }
+                )
             payload = await asyncio.to_thread(
                 self._post_json,
                 endpoint,
-                {"image_base64": encoded_image, "adaptive": adaptive},
+                request_payload,
             )
             response = RemoteVisionResponse.model_validate(payload)
         except ValidationError as exc:
@@ -76,7 +96,14 @@ class RemoteVisionService:
             raise RemoteVisionError(f"Modal vision request failed after {time.perf_counter() - started_at:.1f}s: {exc}") from exc
 
         items = [OCRResultItem.model_validate(item.model_dump()) for item in response.items]
-        return items, response.detection_seconds, response.ocr_seconds, response.model_sha256
+        return (
+            items,
+            response.detection_seconds,
+            response.ocr_seconds,
+            response.model_sha256,
+            response.precision_retry_orders,
+            response.precision_ocr_seconds,
+        )
 
     @staticmethod
     def _post_json(endpoint: str, payload: dict[str, object]) -> object:

@@ -254,7 +254,7 @@ async def analyze_vision(
         remote_items = None
         try:
             remote_started_at = time.perf_counter()
-            remote_items, detection_elapsed, ocr_elapsed, remote_model_sha256 = await remote_vision_service.analyze(
+            remote_items, detection_elapsed, ocr_elapsed, remote_model_sha256, _, _ = await remote_vision_service.analyze(
                 temp_path,
                 adaptive=True,
             )
@@ -541,15 +541,28 @@ async def find_target_book_in_image(
         remote_items = None
         try:
             remote_started_at = time.perf_counter()
-            remote_items, detection_elapsed, ocr_elapsed, _remote_model_sha256 = await remote_vision_service.analyze(
+            (
+                remote_items,
+                detection_elapsed,
+                ocr_elapsed,
+                _remote_model_sha256,
+                precision_retry_orders,
+                precision_ocr_elapsed,
+            ) = await remote_vision_service.analyze(
                 temp_path,
                 adaptive=False,
+                target=target,
             )
             analyze_log(
                 f"spines={len(remote_items)} detection={detection_elapsed:.1f}s ocr={ocr_elapsed:.1f}s "
                 f"total={time.perf_counter() - request_started_at:.1f}s "
                 f"round_trip={time.perf_counter() - remote_started_at:.1f}s"
             )
+            if precision_retry_orders:
+                analyze_log(
+                    f"[find_target_book] precision OCR orders={precision_retry_orders} "
+                    f"elapsed={precision_ocr_elapsed:.1f}s"
+                )
         except Exception as exc:
             analyze_log(f"[find_target_book] remote vision failed provider={settings.REMOTE_VISION_PROVIDER}: {exc}")
             if not settings.REMOTE_VISION_FALLBACK_LOCAL:
@@ -582,6 +595,8 @@ async def find_target_book_in_image(
                         "detection": round(detection_elapsed, 4),
                         "ocr": round(ocr_elapsed, 4),
                         "matching": round(matching_elapsed, 4),
+                        "precision_ocr": round(precision_ocr_elapsed, 4),
+                        "precision_ocr_count": float(len(precision_retry_orders)),
                         "remote_round_trip": round(time.perf_counter() - remote_started_at, 4),
                         "total_before_artifact_upload": round(time.perf_counter() - request_started_at, 4),
                     },

@@ -13,6 +13,7 @@ POSSIBLE_SCORE = 65.0
 MIN_FOUND_MARGIN = 10.0
 EARLY_STOP_SCORE = 90.0
 EARLY_STOP_FIELD_SCORE = 90.0
+PRECISION_OCR_MIN_CALL_SCORE = 55.0
 HANGUL_BASE = 0xAC00
 HANGUL_END = 0xD7A3
 COMPATIBILITY_INITIALS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
@@ -139,6 +140,27 @@ def call_number_components(first: str | None, second: str | None) -> tuple[float
 def call_number_similarity(first: str | None, second: str | None) -> float:
     score, _ = call_number_components(first, second)
     return score
+
+
+def select_precision_ocr_orders(
+    target: TargetBook,
+    ocr_results: list[OCRResultItem],
+    *,
+    limit: int = 3,
+) -> list[int]:
+    """Select a few likely spines for expensive OCR without confirming a match."""
+
+    if not target.call_number or find_target_book(target, ocr_results).status != "not_found":
+        return []
+    ranked = sorted(
+        (
+            (call_number_similarity(target.call_number, item.call_number), item.detected_order)
+            for item in ocr_results
+            if item.call_number
+        ),
+        reverse=True,
+    )
+    return [order for score, order in ranked if score >= PRECISION_OCR_MIN_CALL_SCORE][:limit]
 
 
 def score_target_detection(target: TargetBook, ocr: OCRResultItem) -> TargetDetection:

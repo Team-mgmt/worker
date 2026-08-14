@@ -369,7 +369,10 @@ class ScanArtifactService:
                 },
                 "timings_seconds": timings,
                 "target_search": target_payload,
-                "inference": {"results": inference_results},
+                "inference": {
+                    "detected_spine_count": len(inference_results),
+                    "results": inference_results,
+                },
             }
             await self._put_bytes(
                 client,

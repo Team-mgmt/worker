@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from worker.schemas.inference import TargetBook
 from worker.services.remote_vision_service import RemoteVisionError, RemoteVisionResponse, RemoteVisionService
 
 
@@ -50,25 +51,41 @@ async def test_remote_service_posts_image_and_parses_result(
     monkeypatch.setattr("worker.services.remote_vision_service.settings.REMOTE_VISION_ENDPOINT", "https://example.modal.run")
     monkeypatch.setattr("worker.services.remote_vision_service.settings.MODAL_TOKEN_ID", "wk-test")
     monkeypatch.setattr("worker.services.remote_vision_service.settings.MODAL_TOKEN_SECRET", "ws-test")
+    posted_payload: dict[str, object] = {}
+
+    def fake_post(endpoint, payload):
+        posted_payload.update(payload)
+        return {
+            "items": [{"detected_order": 1, "raw_text": "환한 숨", "bbox": [1, 2, 3, 4]}],
+            "detection_seconds": 0.1,
+            "ocr_seconds": 0.5,
+            "model_sha256": "b" * 64,
+            "precision_retry_orders": [1],
+            "precision_ocr_seconds": 0.2,
+        }
+
     monkeypatch.setattr(
         RemoteVisionService,
         "_post_json",
-        staticmethod(
-            lambda endpoint, payload: {
-                "items": [{"detected_order": 1, "raw_text": "환한 숨", "bbox": [1, 2, 3, 4]}],
-                "detection_seconds": 0.1,
-                "ocr_seconds": 0.5,
-                "model_sha256": "b" * 64,
-            }
-        ),
+        staticmethod(fake_post),
     )
 
-    items, detection_seconds, ocr_seconds, model_sha256 = await RemoteVisionService().analyze(
+    items, detection_seconds, ocr_seconds, model_sha256, retry_orders, retry_seconds = await RemoteVisionService().analyze(
         image_path,
         adaptive=False,
+        target=TargetBook(
+            holding_id="holding-1",
+            title="환한 숨",
+            author="조해진",
+            call_number="813.6 조92ㅎ",
+        ),
     )
 
     assert items[0].raw_text == "환한 숨"
     assert detection_seconds == 0.1
     assert ocr_seconds == 0.5
     assert model_sha256 == "b" * 64
+    assert retry_orders == [1]
+    assert retry_seconds == 0.2
+    assert posted_payload["target_title"] == "환한 숨"
+    assert posted_payload["target_call_number"] == "813.6 조92ㅎ"

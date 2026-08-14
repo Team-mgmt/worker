@@ -116,6 +116,7 @@ async def test_target_search_artifact_saves_full_scoring_diagnostics(tmp_path, m
     assert payload["mode"] == "target_search"
     assert payload["target_search"]["target"]["holding_id"] == "holding-1"
     assert payload["target_search"]["detections"][0]["title_score"] == 100.0
+    assert payload["inference"]["detected_spine_count"] == 2
     assert len(payload["inference"]["results"]) == 2
     assert payload["inference"]["results"][0]["crop_image_key"].endswith("/crops/001.jpg")
     assert payload["model"]["detector_sha256"] == "model-sha"
