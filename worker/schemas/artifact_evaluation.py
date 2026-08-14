@@ -11,6 +11,8 @@ class GroundTruthAnnotation(BaseModel):
     title: str | None = None
     author: str | None = None
     call_number: str | None = None
+    holding_id: str | None = None
+    book_id: str | None = None
     placement_status: Literal["normal", "misplaced"] | None = None
 
     @field_validator("polygon")
@@ -52,6 +54,34 @@ class PlacementMetrics(BaseModel):
     f1: float
 
 
+class MatchingMetrics(BaseModel):
+    iou_threshold: float
+    polygon_matched_count: int
+    title_evaluated_count: int
+    title_correct: int
+    title_normalized_accuracy: float
+    author_evaluated_count: int
+    author_correct: int
+    author_normalized_accuracy: float
+    call_number_evaluated_count: int
+    call_number_correct: int
+    call_number_exact_accuracy: float
+    kdc_evaluated_count: int
+    kdc_correct: int
+    kdc_accuracy: float
+    book_code_evaluated_count: int
+    book_code_correct: int
+    book_code_accuracy: float
+    db_evaluated_count: int
+    top1_correct: int
+    top1_accuracy: float
+    top3_correct: int
+    top3_accuracy: float
+    confirmed_count: int
+    wrong_confirmation_count: int
+    false_confirmation_rate: float
+
+
 class ArtifactRunSummary(BaseModel):
     run_id: str
     library_code: str
@@ -74,4 +104,5 @@ class GroundTruthSaveResponse(BaseModel):
     key: str
     metrics: DetectionMetrics
     placement_metrics: PlacementMetrics | None = None
+    matching_metrics: MatchingMetrics | None = None
     ground_truth: dict

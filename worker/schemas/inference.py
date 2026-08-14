@@ -1,5 +1,7 @@
 from typing import List, Optional, Union
+
 from pydantic import BaseModel, Field
+
 
 class OCRResultItem(BaseModel):
     raw_text: Optional[str] = None
@@ -36,6 +38,19 @@ class MatchCandidate(BaseModel):
     score: float
     match_method: str
 
+
+class DecisionDiagnostic(BaseModel):
+    status: str
+    label: str
+    reason: str
+
+
+class DetectionDiagnostics(BaseModel):
+    identification: DecisionDiagnostic
+    shelf_range: DecisionDiagnostic
+    shelf_order: DecisionDiagnostic
+    ocr_quality: DecisionDiagnostic
+
 class DetectionResult(BaseModel):
     detected_order: int
     bbox: Optional[List[float]] = None
@@ -63,6 +78,7 @@ class DetectionResult(BaseModel):
     matched_book_id: Optional[Union[int, str]] = None
     score_margin: Optional[float] = None
     top_candidates: List[MatchCandidate] = Field(default_factory=list)
+    diagnostics: Optional[DetectionDiagnostics] = None
 
 class EstimatedShelf(BaseModel):
     kdc_start: Optional[float] = None

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from worker.db_models.inference import Detection, ScanSession
 from worker.schemas.inference import DetectionResult, MatchCandidate, MatchResponse, OCRResultItem, ScanSessionRequest
+from worker.services.decision_diagnostics_service import apply_detection_diagnostics
 from worker.services.matching_service import MIN_CONFIRMED_MATCH_SCORE, estimate_kdc_session, evaluate_misplacement, find_matches_for_ocr
 from worker.services.shelf_order_service import apply_shelf_order_decisions
 
@@ -97,6 +98,7 @@ async def process_scan_session_request(request: ScanSessionRequest, db: AsyncSes
         result.reason = reason
 
     apply_shelf_order_decisions(detection_results)
+    apply_detection_diagnostics(detection_results, estimated_shelf)
 
     candidate_adapter = TypeAdapter(List[MatchCandidate])
     for result in detection_results:

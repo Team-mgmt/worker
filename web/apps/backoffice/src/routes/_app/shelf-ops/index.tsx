@@ -40,6 +40,17 @@ export const Route = createFileRoute("/_app/shelf-ops/")({
 });
 
 type DetectionStatus = "normal" | "misplaced" | "unmatched" | "review";
+type DecisionDiagnostic = {
+  status: string;
+  label: string;
+  reason: string;
+};
+type DetectionDiagnostics = {
+  identification: DecisionDiagnostic;
+  shelf_range: DecisionDiagnostic;
+  shelf_order: DecisionDiagnostic;
+  ocr_quality: DecisionDiagnostic;
+};
 
 type Detection = {
   id: string;
@@ -58,6 +69,7 @@ type Detection = {
   matchScore: number;
   status: DetectionStatus;
   reason: string;
+  diagnostics?: DetectionDiagnostics;
   candidates: Array<{
     title: string;
     callNumber: string;
@@ -78,6 +90,7 @@ type WorkerDetection = {
   match_score?: number | null;
   decision: string;
   reason?: string | null;
+  diagnostics?: DetectionDiagnostics | null;
   top_candidates?: Array<{
     title: string;
     author?: string | null;
@@ -215,6 +228,7 @@ function mapWorkerDetections(
       matchScore: result.match_score ?? 0,
       status: mapWorkerDecision(result.decision),
       reason: result.reason ?? "worker 분석 결과",
+      diagnostics: result.diagnostics ?? undefined,
       candidates:
         result.top_candidates?.map((candidate) => ({
           title: candidate.title,
@@ -665,6 +679,51 @@ function DetectionDetail({ detection }: { detection: Detection }) {
             </dd>
           </div>
         </dl>
+
+        {detection.diagnostics ? (
+          <section>
+            <p className="text-xs text-muted-foreground">판정 구조</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {[
+                ["도서 식별", detection.diagnostics.identification],
+                ["서가 범위", detection.diagnostics.shelf_range],
+                ["세부 배열", detection.diagnostics.shelf_order],
+                ["OCR 품질", detection.diagnostics.ocr_quality],
+              ].map(([category, diagnostic]) => {
+                const item = diagnostic as DecisionDiagnostic;
+                const warning = [
+                  "candidate",
+                  "unmatched",
+                  "out_of_range",
+                  "out_of_order",
+                  "unknown",
+                  "partial",
+                  "low",
+                ].includes(item.status);
+                return (
+                  <div
+                    key={category as string}
+                    className={cn(
+                      "rounded-md border px-3 py-2",
+                      warning
+                        ? "border-amber-200 bg-amber-50"
+                        : "border-emerald-200 bg-emerald-50",
+                    )}
+                    title={item.reason}
+                  >
+                    <p className="text-[11px] text-muted-foreground">
+                      {category as string}
+                    </p>
+                    <p className="mt-0.5 text-sm font-semibold">{item.label}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      {item.reason}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <section>
           <p className="text-xs text-muted-foreground">OCR 원문</p>

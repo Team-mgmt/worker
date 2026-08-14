@@ -46,6 +46,8 @@ type Annotation = {
   title?: string | null;
   author?: string | null;
   call_number?: string | null;
+  holding_id?: string | null;
+  book_id?: string | null;
   placement_status?: "normal" | "misplaced" | null;
 };
 type DetectionMetrics = {
@@ -72,6 +74,25 @@ type PlacementMetrics = {
   recall: number;
   f1: number;
 };
+type MatchingMetrics = {
+  polygon_matched_count: number;
+  title_evaluated_count: number;
+  title_normalized_accuracy: number;
+  author_evaluated_count: number;
+  author_normalized_accuracy: number;
+  call_number_evaluated_count: number;
+  call_number_exact_accuracy: number;
+  kdc_evaluated_count: number;
+  kdc_accuracy: number;
+  book_code_evaluated_count: number;
+  book_code_accuracy: number;
+  db_evaluated_count: number;
+  top1_accuracy: number;
+  top3_accuracy: number;
+  confirmed_count: number;
+  wrong_confirmation_count: number;
+  false_confirmation_rate: number;
+};
 type ArtifactRun = {
   run_id: string;
   library_code: string;
@@ -86,6 +107,8 @@ type PredictionResult = {
   ocr_title?: string | null;
   ocr_author?: string | null;
   ocr_call_number?: string | null;
+  matched_holding_id?: string | null;
+  matched_book_id?: string | null;
 };
 type ArtifactDetail = {
   run_id: string;
@@ -95,6 +118,7 @@ type ArtifactDetail = {
     annotations?: Annotation[];
     metrics?: DetectionMetrics;
     placement_metrics?: PlacementMetrics | null;
+    matching_metrics?: MatchingMetrics | null;
   } | null;
   image_width: number;
   image_height: number;
@@ -133,6 +157,8 @@ function predictionAnnotations(detail: ArtifactDetail): Annotation[] {
         title: result.ocr_title,
         author: result.ocr_author,
         call_number: result.ocr_call_number,
+        holding_id: result.matched_holding_id,
+        book_id: result.matched_book_id,
         placement_status: "normal" as const,
       },
     ];
@@ -174,6 +200,8 @@ function EvaluationPage() {
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
   const [placementMetrics, setPlacementMetrics] =
     useState<PlacementMetrics | null>(null);
+  const [matchingMetrics, setMatchingMetrics] =
+    useState<MatchingMetrics | null>(null);
   const [message, setMessage] = useState("");
   const [isBusy, setIsBusy] = useState(true);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -237,6 +265,7 @@ function EvaluationPage() {
       setAnnotations(initial);
       setMetrics(payload.ground_truth?.metrics ?? null);
       setPlacementMetrics(payload.ground_truth?.placement_metrics ?? null);
+      setMatchingMetrics(payload.ground_truth?.matching_metrics ?? null);
       setSelectedId(initial[0]?.id ?? null);
       setDraftPoints([]);
       setMode("select");
@@ -265,6 +294,7 @@ function EvaluationPage() {
     setSelectedId(next[0]?.id ?? null);
     setMetrics(null);
     setPlacementMetrics(null);
+    setMatchingMetrics(null);
   };
   const handleStageClick = (event: KonvaEventObject<MouseEvent>) => {
     if (mode !== "add" || !detail) return;
@@ -313,9 +343,11 @@ function EvaluationPage() {
       const payload = (await response.json()) as {
         metrics: DetectionMetrics;
         placement_metrics?: PlacementMetrics | null;
+        matching_metrics?: MatchingMetrics | null;
       };
       setMetrics(payload.metrics);
       setPlacementMetrics(payload.placement_metrics ?? null);
+      setMatchingMetrics(payload.matching_metrics ?? null);
       setMessage("ground-truth.json 저장과 평가가 완료되었습니다.");
       setRuns((current) =>
         current.map((run) =>
@@ -440,6 +472,27 @@ function EvaluationPage() {
               <p className="mt-1 text-lg font-bold tabular-nums">{value}</p>
             </div>
           ))}
+        </div>
+      ) : null}
+      {matchingMetrics ? (
+        <div className="mb-4 grid grid-cols-2 border bg-white md:grid-cols-4 xl:grid-cols-7">
+          {[
+            ["제목 정확도", percent(matchingMetrics.title_normalized_accuracy)],
+            ["청구기호 정확도", percent(matchingMetrics.call_number_exact_accuracy)],
+            ["KDC 정확도", percent(matchingMetrics.kdc_accuracy)],
+            ["도서기호 정확도", percent(matchingMetrics.book_code_accuracy)],
+            ["DB Top-1", percent(matchingMetrics.top1_accuracy)],
+            ["DB Top-3", percent(matchingMetrics.top3_accuracy)],
+            ["오확정률", percent(matchingMetrics.false_confirmation_rate)],
+          ].map(([label, value]) => (
+            <div key={label} className="border-b border-r px-4 py-3 xl:border-b-0">
+              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="mt-1 text-lg font-bold tabular-nums">{value}</p>
+            </div>
+          ))}
+          <div className="col-span-2 border-t px-4 py-2 text-xs text-muted-foreground md:col-span-4 xl:col-span-7">
+            Polygon 연결 {matchingMetrics.polygon_matched_count}권 · DB GT {matchingMetrics.db_evaluated_count}권 · 자동 확정 {matchingMetrics.confirmed_count}권 중 오확정 {matchingMetrics.wrong_confirmation_count}권
+          </div>
         </div>
       ) : null}
 
@@ -630,6 +683,22 @@ function EvaluationPage() {
                     })
                   }
                 />
+              </div>
+              <div>
+                <Label>정답 소장 ID (holding_id)</Label>
+                <Input
+                  className="mt-1 font-mono text-xs"
+                  placeholder="가능하면 RDS LibraryHolding.id 입력"
+                  value={selected.holding_id ?? ""}
+                  onChange={(event) =>
+                    updateAnnotation(selected.id, {
+                      holding_id: event.target.value || null,
+                    })
+                  }
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  입력하면 제목 유사도가 아니라 실제 소장자료 ID로 Top-1/Top-3를 평가합니다.
+                </p>
               </div>
               <div>
                 <Label>배치 정답</Label>
