@@ -37,6 +37,10 @@ def normalize_core_title(value: str | None, author: str | None = None) -> str:
 
     # Catalog titles conventionally put responsibility/genre statements after a colon.
     normalized = re.split(r"\s*[:：]\s*", normalized, maxsplit=1)[0]
+    # An equals sign introduces a parallel title. The catalog's principal title is
+    # on the left (for example, "코케인 = Cocaine" -> "코케인"). Keeping only
+    # that title prevents the translated title from diluting an exact OCR match.
+    normalized = re.split(r"\s*[=＝]\s*", normalized, maxsplit=1)[0]
     normalized_author = normalize_catalog_text(author)
     if normalized_author:
         normalized = normalized.replace(normalized_author, " ")

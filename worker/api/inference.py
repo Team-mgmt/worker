@@ -277,10 +277,13 @@ async def analyze_vision(
                 source_name=safe_filename,
                 ocr_results=remote_items,
             )
+            analyze_log(f"[analyze_vision] matching start items={len(remote_items)} provider=remote")
             match_started_at = time.perf_counter()
             response = await process_scan_session_request(req, db, persist=False)
             matching_elapsed = time.perf_counter() - match_started_at
+            analyze_log(f"[analyze_vision] matching done elapsed={matching_elapsed:.1f}s provider=remote")
             try:
+                artifact_started_at = time.perf_counter()
                 artifact_prefix = await scan_artifact_service.save_scan(
                     run_id=run_id,
                     image_path=temp_path,
@@ -301,6 +304,15 @@ async def analyze_vision(
                 if artifact_prefix:
                     response.artifact_run_id = run_id
                     response.artifact_prefix = artifact_prefix
+                    analyze_log(
+                        f"[analyze_vision] artifacts saved prefix={artifact_prefix} "
+                        f"elapsed={time.perf_counter() - artifact_started_at:.1f}s provider=remote"
+                    )
+                else:
+                    analyze_log(
+                        f"[analyze_vision] artifacts skipped elapsed={time.perf_counter() - artifact_started_at:.1f}s "
+                        "provider=remote"
+                    )
             except Exception as exc:
                 analyze_log(f"[analyze_vision] artifact save failed; continuing without S3: {exc}")
             return response

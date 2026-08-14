@@ -23,7 +23,8 @@ Titles are normalized with NFKC and reduced to their identifying core. Common
 bibliographic responsibility and form expressions such as `장편소설`,
 `소설집`, `시집`, `지음`, `옮김`, and `대활자본` do not contribute to title
 identity. Text after a catalog subtitle separator (`:`) is also excluded from
-the primary-title comparison.
+the primary-title comparison. A parallel title after `=` is treated as an
+alias, so `코케인 = Cocaine : 진연주 장편소설` has the core title `코케인`.
 
 Candidate titles are reranked with a corpus-local character 2/3-gram TF-IDF
 cosine score combined with a compact-title RapidFuzz score. Character n-grams

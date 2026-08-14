@@ -26,6 +26,13 @@ def test_core_title_removes_author_and_nondistinctive_novel_suffixes() -> None:
     assert normalize_core_title("시간의 계단 : 주영하 장편소설", "주영하") == "시간의 계단"
 
 
+def test_core_title_keeps_principal_title_before_parallel_title() -> None:
+    assert normalize_core_title(
+        "코케인 = Cocaine : 진연주 장편소설",
+        "진연주",
+    ) == "코케인"
+
+
 def test_character_ngram_tfidf_separates_other_books_by_the_same_author() -> None:
     scores = character_ngram_tfidf_cosines(
         "시간의 계단",
