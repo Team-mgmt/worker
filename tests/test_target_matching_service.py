@@ -198,6 +198,46 @@ def test_precision_ocr_selects_call_number_neighbors_only_after_not_found() -> N
     assert select_precision_ocr_orders(target, successful_fast_ocr) == []
 
 
+def test_unique_exact_call_number_is_possible_when_title_ocr_fails() -> None:
+    target = TargetBook(
+        holding_id="baseball",
+        title="천하무적 불량야구단 : 주원규 장편소설",
+        author="주원규",
+        call_number="813.6 주67ㅊ",
+    )
+    results = [
+        ocr(22, "KX R 9 91668", "813.6 주67ㅊ"),
+        ocr(23, "특별관리대상자", "813.6 주67ㅌ"),
+    ]
+
+    response = find_target_book(target, results)
+
+    assert response.status == "possible"
+    assert response.best_detection is not None
+    assert response.best_detection.detected_order == 22
+    assert response.best_detection.call_number_score == 100.0
+    assert response.best_detection.title_score == 0.0
+    assert select_precision_ocr_orders(target, results) == [22, 23]
+
+
+def test_duplicate_exact_call_numbers_are_not_promoted_without_title_evidence() -> None:
+    target = TargetBook(
+        holding_id="copy",
+        title="목표 도서",
+        call_number="813.6 주67ㅊ",
+    )
+
+    response = find_target_book(
+        target,
+        [
+            ocr(4, "읽기 실패 A", "813.6 주67ㅊ"),
+            ocr(9, "읽기 실패 B", "813.6 주67ㅊ"),
+        ],
+    )
+
+    assert response.status == "not_found"
+
+
 def test_target_matching_does_not_load_database_matching_stack() -> None:
     subprocess.run(
         [

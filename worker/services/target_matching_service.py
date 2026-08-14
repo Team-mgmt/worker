@@ -162,7 +162,10 @@ def select_precision_ocr_orders(
 ) -> list[int]:
     """Select a few likely spines for expensive OCR without confirming a match."""
 
-    if not target.call_number or find_target_book(target, ocr_results).status != "not_found":
+    if (
+        not target.call_number
+        or find_target_book(target, ocr_results, allow_call_number_fallback=False).status != "not_found"
+    ):
         return []
     ranked = sorted(
         (
@@ -205,7 +208,12 @@ def score_target_detection(target: TargetBook, ocr: OCRResultItem) -> TargetDete
     )
 
 
-def find_target_book(target: TargetBook, ocr_results: list[OCRResultItem]) -> TargetBookSearchResponse:
+def find_target_book(
+    target: TargetBook,
+    ocr_results: list[OCRResultItem],
+    *,
+    allow_call_number_fallback: bool = True,
+) -> TargetBookSearchResponse:
     detections = sorted(
         (score_target_detection(target, ocr) for ocr in ocr_results),
         key=lambda item: item.score,
@@ -220,6 +228,21 @@ def find_target_book(target: TargetBook, ocr_results: list[OCRResultItem]) -> Ta
         status = "found"
     elif best and best.score >= POSSIBLE_SCORE:
         status = "possible"
+
+    if status == "not_found" and allow_call_number_fallback:
+        exact_call_candidates = [
+            detection
+            for detection in detections
+            if detection.call_number_score == 100.0
+            and detection.call_number_suffix_match is True
+            and detection.author_score < 80.0
+        ]
+        if len(exact_call_candidates) == 1:
+            best = exact_call_candidates[0]
+            other_scores = [detection.score for detection in detections if detection is not best]
+            second_score = max(other_scores) if other_scores else None
+            margin = round(best.score - second_score, 1) if second_score is not None else None
+            status = "possible"
 
     return TargetBookSearchResponse(
         status=status,
