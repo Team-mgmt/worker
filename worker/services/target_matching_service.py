@@ -6,7 +6,6 @@ import unicodedata
 from rapidfuzz import fuzz
 
 from worker.schemas.inference import OCRResultItem, TargetBook, TargetBookSearchResponse, TargetDetection
-from worker.services.matching_service import split_call_number
 
 FOUND_SCORE = 82.0
 POSSIBLE_SCORE = 65.0
@@ -38,6 +37,19 @@ TITLE_BOILERPLATE = (
     "지음",
     "옮김",
 )
+
+
+def _split_call_number(call_number: str) -> tuple[str, str]:
+    """Split a call number without importing the database matching stack."""
+
+    match = re.search(r"(\d{3}(?:[.,:]\d+)?)", call_number)
+    if not match:
+        parts = call_number.split()
+        return parts[0] if parts else "", parts[1] if len(parts) > 1 else ""
+    class_no = match.group(1).replace(":", ".").replace(",", ".")
+    rest = call_number[match.end() :].strip()
+    book_code = re.search(r"([가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9.-]+)", rest)
+    return class_no, book_code.group(1) if book_code else ""
 
 
 def normalize_match_text(value: str | None) -> str:
@@ -119,8 +131,8 @@ def _split_book_code(value: str) -> tuple[str, str]:
 
 
 def call_number_components(first: str | None, second: str | None) -> tuple[float, bool | None]:
-    first_class, first_code = split_call_number(first or "")
-    second_class, second_code = split_call_number(second or "")
+    first_class, first_code = _split_call_number(first or "")
+    second_class, second_code = _split_call_number(second or "")
     if not first_class or not second_class:
         return 0.0, None
     class_score = 100.0 if first_class == second_class else float(fuzz.ratio(first_class, second_class))

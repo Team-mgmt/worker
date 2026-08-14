@@ -49,7 +49,6 @@ gpu_image = (
         "protobuf>=3.20.2",
         "rapidfuzz>=3.14,<4",
         "safetensors>=0.6,<1",
-        "sqlalchemy[asyncio]>=2.0,<3",
         "nvidia-cuda-cccl-cu12==12.6.77",
     )
     .add_local_dir("worker", remote_path="/opt/shelfalign/worker", copy=True)

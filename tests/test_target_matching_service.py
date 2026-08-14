@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 from worker.schemas.inference import OCRResultItem, TargetBook
 from worker.services.target_matching_service import (
     call_number_similarity,
@@ -193,3 +196,14 @@ def test_precision_ocr_selects_call_number_neighbors_only_after_not_found() -> N
         ocr(21, "천하무적 불량야구단", "813.6 주67ㅊ", "주원규"),
     ]
     assert select_precision_ocr_orders(target, successful_fast_ocr) == []
+
+
+def test_target_matching_does_not_load_database_matching_stack() -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import worker.services.target_matching_service; assert 'worker.services.matching_service' not in sys.modules",
+        ],
+        check=True,
+    )
