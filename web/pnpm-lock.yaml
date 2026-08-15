@@ -468,6 +468,9 @@ importers:
       '@tanstack/react-router':
         specifier: ^1.169.2
         version: 1.169.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@techstark/opencv-js':
+        specifier: 4.12.0-release.1
+        version: 4.12.0-release.1
       '@tiptap/core':
         specifier: catalog:tiptap
         version: 3.22.5(@tiptap/pm@3.22.5)

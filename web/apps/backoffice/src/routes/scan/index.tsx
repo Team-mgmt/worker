@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 
 import { LIBRARIES } from "@/lib/libraries";
+import type {
+  OpticalFlowBoxTracker,
+  TrackedBox,
+} from "@/lib/optical-flow-box-tracker";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,14 +96,20 @@ function PatronBookFinder() {
   const [preview, setPreview] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
   const [result, setResult] = useState<TargetResult | null>(null);
-  const [videoResult, setVideoResult] = useState<TargetVideoResult | null>(null);
+  const [videoResult, setVideoResult] = useState<TargetVideoResult | null>(
+    null,
+  );
   const [liveActive, setLiveActive] = useState(false);
   const [liveStatus, setLiveStatus] = useState("");
   const [liveResult, setLiveResult] = useState<TargetResult | null>(null);
   const [liveFrameSize, setLiveFrameSize] = useState({ width: 1, height: 1 });
+  const [trackedBox, setTrackedBox] = useState<TrackedBox | null>(null);
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
   const liveStreamRef = useRef<MediaStream | null>(null);
   const liveSessionRef = useRef(0);
+  const trackerRef = useRef<OpticalFlowBoxTracker | null>(null);
+  const trackerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const trackerAnimationRef = useRef<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -107,13 +117,86 @@ function PatronBookFinder() {
     liveSessionRef.current += 1;
     liveStreamRef.current?.getTracks().forEach((track) => track.stop());
     liveStreamRef.current = null;
+    if (trackerAnimationRef.current !== null)
+      cancelAnimationFrame(trackerAnimationRef.current);
+    trackerAnimationRef.current = null;
+    trackerRef.current?.dispose();
+    trackerRef.current = null;
+    trackerCanvasRef.current = null;
     setLiveActive(false);
     setLiveResult(null);
+    setTrackedBox(null);
     setBusy(false);
     if (message !== undefined) setLiveStatus(message);
   }, []);
 
   useEffect(() => () => stopLiveCamera(), [stopLiveCamera]);
+
+  const startOpticalFlowTracking = async (
+    sourceFrame: HTMLCanvasElement,
+    bbox: number[],
+    sessionId: number,
+  ) => {
+    if (bbox.length !== 4 || liveSessionRef.current !== sessionId) return false;
+    const { loadOpenCv, OpticalFlowBoxTracker: Tracker } =
+      await import("@/lib/optical-flow-box-tracker");
+    const cv = await loadOpenCv();
+    if (liveSessionRef.current !== sessionId) return false;
+
+    // Optical flow runs locally for every rendered frame. Keeping the working
+    // image small gives mobile browsers a realistic chance of sustaining 30 FPS.
+    const trackerWidth = Math.min(480, sourceFrame.width);
+    const trackerHeight = Math.round(
+      sourceFrame.height * (trackerWidth / sourceFrame.width),
+    );
+    const trackerCanvas = document.createElement("canvas");
+    trackerCanvas.width = trackerWidth;
+    trackerCanvas.height = trackerHeight;
+    trackerCanvas
+      .getContext("2d", { willReadFrequently: true })
+      ?.drawImage(sourceFrame, 0, 0, trackerWidth, trackerHeight);
+    const scaleX = trackerWidth / sourceFrame.width;
+    const scaleY = trackerHeight / sourceFrame.height;
+    const initialBox = {
+      x: bbox[0] * scaleX,
+      y: bbox[1] * scaleY,
+      width: (bbox[2] - bbox[0]) * scaleX,
+      height: (bbox[3] - bbox[1]) * scaleY,
+    };
+
+    trackerRef.current?.dispose();
+    trackerRef.current = new Tracker(cv, trackerCanvas, initialBox);
+    trackerCanvasRef.current = trackerCanvas;
+    setTrackedBox({ ...initialBox, confidence: 1 });
+    setLiveFrameSize({ width: trackerWidth, height: trackerHeight });
+
+    if (trackerAnimationRef.current !== null)
+      cancelAnimationFrame(trackerAnimationRef.current);
+    const trackFrame = () => {
+      if (liveSessionRef.current !== sessionId) return;
+      const video = liveVideoRef.current;
+      const canvas = trackerCanvasRef.current;
+      const tracker = trackerRef.current;
+      if (!video || !canvas || !tracker) return;
+      canvas
+        .getContext("2d", { willReadFrequently: true })
+        ?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const nextBox = tracker.update(canvas);
+      if (!nextBox || nextBox.confidence < 0.35) {
+        tracker.dispose();
+        trackerRef.current = null;
+        setTrackedBox(null);
+        setLiveStatus(
+          "추적 대상을 놓쳤습니다. 중지 후 라이브 탐색을 다시 시작해주세요.",
+        );
+        return;
+      }
+      setTrackedBox(nextBox);
+      trackerAnimationRef.current = requestAnimationFrame(trackFrame);
+    };
+    trackerAnimationRef.current = requestAnimationFrame(trackFrame);
+    return true;
+  };
 
   const targetBody = (file: File, saveArtifacts = true) => {
     if (!target?.book) return null;
@@ -187,7 +270,9 @@ function PatronBookFinder() {
   const startLiveSearch = async () => {
     if (!target?.book || liveActive) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError("이 브라우저에서는 실시간 카메라를 사용할 수 없습니다. HTTPS 접속인지 확인하세요.");
+      setError(
+        "이 브라우저에서는 실시간 카메라를 사용할 수 없습니다. HTTPS 접속인지 확인하세요.",
+      );
       return;
     }
 
@@ -217,17 +302,32 @@ function PatronBookFinder() {
       liveStreamRef.current = stream;
       setLiveActive(true);
       setLiveStatus("서가를 천천히 비춰주세요. 프레임 0/8 분석 대기 중");
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
       const video = liveVideoRef.current;
       if (!video) throw new Error("카메라 화면을 초기화하지 못했습니다.");
       video.srcObject = stream;
       await video.play();
+      void import("@/lib/optical-flow-box-tracker").then(({ loadOpenCv }) =>
+        loadOpenCv(),
+      );
 
       let bestPossible:
-        | { result: TargetResult; dataUrl: string; width: number; height: number }
+        | {
+            result: TargetResult;
+            dataUrl: string;
+            width: number;
+            height: number;
+          }
         | undefined;
       let lastAttempt:
-        | { result: TargetResult; dataUrl: string; width: number; height: number }
+        | {
+            result: TargetResult;
+            dataUrl: string;
+            width: number;
+            height: number;
+          }
         | undefined;
 
       for (let frameNumber = 1; frameNumber <= 8; frameNumber += 1) {
@@ -239,7 +339,9 @@ function PatronBookFinder() {
         }
 
         setLiveResult(null);
-        setLiveStatus(`프레임 ${frameNumber}/8 분석 중 · 카메라를 잠시 고정해주세요`);
+        setLiveStatus(
+          `프레임 ${frameNumber}/8 분석 중 · 카메라를 잠시 고정해주세요`,
+        );
         const scale = Math.min(1, 1600 / video.videoWidth);
         const width = Math.round(video.videoWidth * scale);
         const height = Math.round(video.videoHeight * scale);
@@ -264,12 +366,18 @@ function PatronBookFinder() {
         });
         const payload = await response.json();
         if (!response.ok)
-          throw new Error(payload?.detail || "실시간 프레임 분석에 실패했습니다.");
+          throw new Error(
+            payload?.detail || "실시간 프레임 분석에 실패했습니다.",
+          );
         if (liveSessionRef.current !== sessionId) return;
 
         const frameResult = payload as TargetResult;
         lastAttempt = { result: frameResult, dataUrl, width, height };
         setLiveResult(frameResult);
+        const trackingBbox = frameResult.best_detection?.bbox;
+        if (trackingBbox) {
+          await startOpticalFlowTracking(canvas, trackingBbox, sessionId);
+        }
         if (
           frameResult.status === "possible" &&
           (!bestPossible ||
@@ -279,10 +387,19 @@ function PatronBookFinder() {
           bestPossible = lastAttempt;
         }
         if (frameResult.status === "found") {
+          setResult(frameResult);
+          if (trackerRef.current) {
+            setLiveStatus(
+              "목표 도서를 찾았습니다. 브라우저가 최대 30FPS로 추적 중입니다.",
+            );
+            setBusy(true);
+            return;
+          }
           setPreview(dataUrl);
           setImageSize({ width, height });
-          setResult(frameResult);
-          stopLiveCamera("목표 도서를 발견해 정확한 프레임에서 화면을 멈췄습니다.");
+          stopLiveCamera(
+            "목표 도서를 발견했지만 추적 특징이 부족해 정확한 프레임에서 멈췄습니다.",
+          );
           return;
         }
         setLiveStatus(
@@ -296,7 +413,10 @@ function PatronBookFinder() {
       const finalAttempt = bestPossible ?? lastAttempt;
       if (finalAttempt) {
         setPreview(finalAttempt.dataUrl);
-        setImageSize({ width: finalAttempt.width, height: finalAttempt.height });
+        setImageSize({
+          width: finalAttempt.width,
+          height: finalAttempt.height,
+        });
         setResult(finalAttempt.result);
       }
       stopLiveCamera("라이브 탐색이 끝났습니다. 필요하면 다시 시작하세요.");
@@ -542,40 +662,62 @@ function PatronBookFinder() {
               className="block w-full"
             />
             <div className="pointer-events-none absolute inset-3 border-2 border-dashed border-white/50" />
-            {(liveResult?.candidate_detections ?? []).map((detection, index) => {
-              const bbox = detection.bbox;
-              if (!bbox || bbox.length !== 4) return null;
-              return (
-                <div
-                  key={detection.detected_order}
-                  className="pointer-events-none absolute border-4 border-amber-400 bg-amber-400/10"
-                  style={{
-                    left: `${(bbox[0] / liveFrameSize.width) * 100}%`,
-                    top: `${(bbox[1] / liveFrameSize.height) * 100}%`,
-                    width: `${((bbox[2] - bbox[0]) / liveFrameSize.width) * 100}%`,
-                    height: `${((bbox[3] - bbox[1]) / liveFrameSize.height) * 100}%`,
-                  }}
-                >
-                  <span className="absolute -top-7 left-0 bg-amber-500 px-2 py-1 text-xs font-bold">
-                    최근 후보 {index + 1}
-                  </span>
-                </div>
-              );
-            })}
+            {trackedBox ? (
+              <div
+                className="pointer-events-none absolute border-4 border-green-400 bg-green-400/10 transition-[left,top,width,height] duration-75 linear"
+                style={{
+                  left: `${(trackedBox.x / liveFrameSize.width) * 100}%`,
+                  top: `${(trackedBox.y / liveFrameSize.height) * 100}%`,
+                  width: `${(trackedBox.width / liveFrameSize.width) * 100}%`,
+                  height: `${(trackedBox.height / liveFrameSize.height) * 100}%`,
+                }}
+              >
+                <span className="absolute -top-7 left-0 whitespace-nowrap bg-green-600 px-2 py-1 text-xs font-bold">
+                  목표 도서 추적 중
+                </span>
+              </div>
+            ) : null}
+            {!trackedBox
+              ? (liveResult?.candidate_detections ?? []).map(
+                  (detection, index) => {
+                    const bbox = detection.bbox;
+                    if (!bbox || bbox.length !== 4) return null;
+                    return (
+                      <div
+                        key={detection.detected_order}
+                        className="pointer-events-none absolute border-4 border-amber-400 bg-amber-400/10"
+                        style={{
+                          left: `${(bbox[0] / liveFrameSize.width) * 100}%`,
+                          top: `${(bbox[1] / liveFrameSize.height) * 100}%`,
+                          width: `${((bbox[2] - bbox[0]) / liveFrameSize.width) * 100}%`,
+                          height: `${((bbox[3] - bbox[1]) / liveFrameSize.height) * 100}%`,
+                        }}
+                      >
+                        <span className="absolute -top-7 left-0 bg-amber-500 px-2 py-1 text-xs font-bold">
+                          최근 후보 {index + 1}
+                        </span>
+                      </div>
+                    );
+                  },
+                )
+              : null}
           </div>
           <div className="flex items-center justify-between gap-3 p-3">
             <p className="text-sm">{liveStatus}</p>
             <Button
               size="sm"
               variant="destructive"
-              onClick={() => stopLiveCamera("사용자가 라이브 탐색을 중지했습니다.")}
+              onClick={() =>
+                stopLiveCamera("사용자가 라이브 탐색을 중지했습니다.")
+              }
             >
               <SquareIcon className="size-4" />
               중지
             </Button>
           </div>
           <p className="px-3 pb-3 text-xs text-zinc-400">
-            서버 분석 결과가 도착할 때마다 최근 후보가 표시됩니다. 정확한 위치 확인을 위해 카메라를 천천히 움직이세요.
+            서버 분석 결과가 도착할 때마다 최근 후보가 표시됩니다. 정확한 위치
+            확인을 위해 카메라를 천천히 움직이세요.
           </p>
         </section>
       ) : liveStatus ? (

@@ -30,13 +30,17 @@ videos available for later GT review without adding S3 upload time to the HTTP r
 - the rear camera remains open while the client captures one JPEG at a time;
 - requests are sequential, so a slow inference cannot build an unbounded frame queue;
 - at most eight frames are analyzed in one live session;
-- the latest `possible` candidates are overlaid in amber while scanning;
-- on `found`, the exact submitted frame is frozen and the normal target bounding box is rendered;
+- the latest server candidates are overlaid in amber while scanning;
+- once a target box is available, OpenCV.js Lucas-Kanade optical flow tracks its visual features locally;
+- the green tracking box is updated through `requestAnimationFrame`, up to the display's 30 FPS target;
+- if too few feature points survive, the client removes the stale box and returns to server detection;
+- when tracking cannot initialize, `found` falls back to freezing the exact submitted frame;
 - sampled live frames set `save_artifacts=false` to avoid creating up to eight duplicate S3 runs.
 
-This is sampled server-side detection, not 30 FPS tracking. A true continuously moving box would require an
-on-device detector/tracker or a low-latency WebRTC inference path. Camera access also requires HTTPS (or
-localhost) in modern mobile browsers; an HTTP IP-address deployment cannot reliably use this mode.
+Target identification is still sampled server-side, while box motion between those detections is local optical-flow
+tracking. Actual FPS depends on the phone CPU, camera resolution, and browser; 30 FPS is a target rather than a
+guarantee. Camera access also requires HTTPS (or localhost) in modern mobile browsers; an HTTP IP-address
+deployment cannot reliably use this mode.
 
 No vector model or GPU is required. The MVP combines normalized RapidFuzz title/author similarity with
 structured KDC and book-code similarity. The call-number score separates KDC, the author-number stem,
