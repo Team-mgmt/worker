@@ -8,6 +8,7 @@ from worker.services.matching_service import (
     find_matches_for_ocr_from_prisma_catalog,
     normalize_catalog_text,
     normalize_core_title,
+    query_catalog_candidate_rows,
     score_catalog_rows,
     split_call_number,
 )
@@ -141,3 +142,34 @@ async def test_title_only_search_does_not_scan_arbitrary_catalog_rows() -> None:
     statement = str(session.execute.await_args.args[0])
     assert 'b."normalizedBookname" ILIKE :title_pattern' in statement
     assert session.execute.await_args.args[1]["title_pattern"] == "%코케인%"
+
+
+async def test_ablation_candidate_pool_keeps_exact_rows_and_broadens_kdc_query() -> None:
+    exact_row = {
+        "holding_id": "exact",
+        "book_id": "book-exact",
+        "bookname": "콩가루 수사단",
+        "authors": "주영하",
+        "call_number": "813.6 주64ㅋ",
+    }
+    exact_result = MagicMock()
+    exact_result.mappings.return_value.all.return_value = [exact_row]
+    broad_result = MagicMock()
+    broad_result.mappings.return_value.all.return_value = [exact_row, {**exact_row, "holding_id": "neighbor"}]
+    session = AsyncMock()
+    session.execute.side_effect = [exact_result, broad_result]
+
+    rows = await query_catalog_candidate_rows(
+        session,
+        "111058",
+        OCRResultItem(detected_order=1, title="콩가루 수사단", call_number="813.6 주64ㅋ"),
+        use_exact_shortcut=False,
+        evaluation_broad_pool=True,
+    )
+
+    assert [row["holding_id"] for row in rows] == ["exact", "neighbor"]
+    broad_statement = str(session.execute.await_args_list[1].args[0])
+    assert 'h."classNoClean" LIKE :class_prefix' in broad_statement
+    assert 'h."bookCode" LIKE :book_code_prefix' not in broad_statement
+    assert "LIMIT 1500" not in broad_statement
+    assert session.execute.await_args_list[1].args[1]["class_prefix"] == "813.6%"

@@ -12,7 +12,7 @@ from worker.services.matching_ablation_service import (
     cases_from_artifacts,
     evaluate_ablation_cases,
 )
-from worker.services.matching_service import query_catalog_candidate_rows
+from worker.services.matching_service import normalize_core_title, query_catalog_candidate_rows, split_call_number
 
 
 def _load_cases(artifact_root: Path) -> list[MatchingAblationCase]:
@@ -31,14 +31,22 @@ async def _candidate_pools(
     cases: list[MatchingAblationCase],
 ) -> list[tuple[MatchingAblationCase, list[Any]]]:
     evaluated: list[tuple[MatchingAblationCase, list[Any]]] = []
+    pool_cache: dict[tuple[str, str], list[Any]] = {}
     async with AsyncSessionLocal() as session:
         for index, case in enumerate(cases, start=1):
-            rows = await query_catalog_candidate_rows(
-                session,
-                case.library_code,
-                case.ocr,
-                use_exact_shortcut=False,
-            )
+            class_no, _ = split_call_number(case.ocr.call_number or "")
+            scope = f"class:{class_no}" if class_no else f"title:{normalize_core_title(case.ocr.title, case.ocr.author)}"
+            cache_key = (case.library_code, scope)
+            rows = pool_cache.get(cache_key)
+            if rows is None:
+                rows = await query_catalog_candidate_rows(
+                    session,
+                    case.library_code,
+                    case.ocr,
+                    use_exact_shortcut=False,
+                    evaluation_broad_pool=True,
+                )
+                pool_cache[cache_key] = rows
             evaluated.append((case, rows))
             print(
                 f"[{index}/{len(cases)}] run={case.run_id} "

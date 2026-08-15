@@ -18,9 +18,10 @@ The GT annotations should contain the reviewed `LibraryHolding.id`; title and
 call-number fallback is supported, but IDs are the reliable matching truth.
 
 The harness polygon-aligns predictions and annotations at IoU 0.5, then queries
-RDS again with the OCR fields. The production exact-call-number shortcut is
-disabled during evaluation so all four strategies receive the same broad
-candidate pool (up to the existing 1,500-row query limit).
+RDS again with the OCR fields. Evaluation combines exact-call-number rows with
+all rows in the recognized full KDC class. It removes the noisy book-code-prefix
+requirement and the production 1,500-row limit, then deduplicates holdings. All
+four strategies therefore receive the same broader candidate pool.
 
 Example download for one library:
 
@@ -86,4 +87,3 @@ python -m pytest \
   tests/test_matching_service.py \
   tests/test_matching_evaluation_service.py -q
 ```
-

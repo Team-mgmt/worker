@@ -251,6 +251,7 @@ async def query_catalog_candidate_rows(
     ocr_item: OCRResultItem,
     *,
     use_exact_shortcut: bool = True,
+    evaluation_broad_pool: bool = False,
 ) -> list[Mapping[str, Any]]:
     """Return the catalog candidate pool before reranking.
 
@@ -258,7 +259,11 @@ async def query_catalog_candidate_rows(
     scoring strategy receives the same broader candidate set.
     """
     ocr_class_no, ocr_book_code = split_call_number(ocr_item.call_number or "")
-    prefix = ocr_class_no[:2] if len(ocr_class_no) >= 2 else ocr_class_no[:1]
+    prefix = (
+        ocr_class_no
+        if evaluation_broad_pool
+        else (ocr_class_no[:2] if len(ocr_class_no) >= 2 else ocr_class_no[:1])
+    )
 
     select_columns = """
           h.id AS holding_id,
@@ -274,7 +279,8 @@ async def query_catalog_candidate_rows(
     """
 
     normalized_call_number = normalize_catalog_text(ocr_item.call_number)
-    if normalized_call_number and use_exact_shortcut:
+    exact_rows: list[Mapping[str, Any]] = []
+    if normalized_call_number:
         exact_stmt = text(
             f"""
             SELECT {select_columns}
@@ -292,21 +298,21 @@ async def query_catalog_candidate_rows(
                     "normalized_call_number": normalized_call_number,
                 },
             )
-            exact_rows = exact_result.mappings().all()
+            exact_rows = list(exact_result.mappings().all())
         except Exception as exc:
             print(f"[matching] exact catalog query failed: {exc}", flush=True)
             await session.rollback()
             exact_rows = []
 
-        if exact_rows:
-            return list(exact_rows)
+        if exact_rows and use_exact_shortcut and not evaluation_broad_pool:
+            return exact_rows
 
     where_parts = ['h."libraryCode" = :library_code']
     params: dict[str, str] = {"library_code": library_code}
     if prefix:
         where_parts.append('h."classNoClean" LIKE :class_prefix')
         params["class_prefix"] = f"{prefix}%"
-    if ocr_book_code and has_reliable_book_code(ocr_book_code):
+    if not evaluation_broad_pool and ocr_book_code and has_reliable_book_code(ocr_book_code):
         where_parts.append('h."bookCode" LIKE :book_code_prefix')
         params["book_code_prefix"] = f"{ocr_book_code[0]}%"
     if not prefix:
@@ -316,13 +322,14 @@ async def query_catalog_candidate_rows(
         where_parts.append('b."normalizedBookname" ILIKE :title_pattern')
         params["title_pattern"] = f"%{core_title}%"
 
+    limit_clause = "" if evaluation_broad_pool else "LIMIT 1500"
     stmt = text(
         f"""
         SELECT {select_columns}
         FROM "LibraryHolding" h
         JOIN "LibraryBook" b ON b.id = h."bookId"
         WHERE {" AND ".join(where_parts)}
-        LIMIT 1500
+        {limit_clause}
         """
     )
 
@@ -334,7 +341,19 @@ async def query_catalog_candidate_rows(
         return []
 
     mapped_rows = result.mappings()
-    return list(mapped_rows.all() if hasattr(mapped_rows, "all") else mapped_rows)
+    broad_rows = list(mapped_rows.all() if hasattr(mapped_rows, "all") else mapped_rows)
+    if not evaluation_broad_pool:
+        return broad_rows
+
+    combined: list[Mapping[str, Any]] = []
+    seen_holdings: set[str] = set()
+    for row in [*exact_rows, *broad_rows]:
+        holding_id = str(row.get("holding_id") or "")
+        if holding_id in seen_holdings:
+            continue
+        seen_holdings.add(holding_id)
+        combined.append(row)
+    return combined
 
 
 def score_catalog_rows(
