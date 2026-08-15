@@ -104,3 +104,37 @@ def test_matching_metrics_measure_ocr_ranking_and_false_confirmation() -> None:
 
 def test_matching_metrics_returns_none_without_polygon_matches() -> None:
     assert calculate_matching_metrics({"inference": {"results": []}}, []) is None
+
+
+def test_matching_metrics_excludes_unreviewed_text_from_db_accuracy() -> None:
+    result = {
+        "inference": {
+            "results": [
+                prediction(
+                    1,
+                    0,
+                    title="OCR title",
+                    author="OCR author",
+                    call_number="813.6 A1",
+                    candidates=[],
+                    matched_holding_id=None,
+                )
+            ]
+        }
+    }
+    annotations = [
+        {
+            "id": "spine-1",
+            "polygon": [[0, 0], [90, 0], [90, 200], [0, 200]],
+            "title": "Reviewed title",
+            "call_number": "813.6 A1",
+        }
+    ]
+
+    metrics = calculate_matching_metrics(result, annotations)
+
+    assert metrics is not None
+    assert metrics.title_evaluated_count == 1
+    assert metrics.call_number_evaluated_count == 1
+    assert metrics.db_evaluated_count == 0
+    assert metrics.top1_accuracy == 0.0

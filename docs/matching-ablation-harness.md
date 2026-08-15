@@ -10,6 +10,17 @@ additional output is written only to `matching_comparison` in the S3
 strategy's Top-3 IDs, bibliographic fields, score, and reranking latency.
 Accuracy still requires assigning the actual book or holding as ground truth.
 
+The backoffice **GT 라벨 검수** page supports this review step. Select a spine,
+search the current library catalog by title or author, and choose the actual
+book shown in the image. The editor copies the canonical title, author, call
+number, and `book_id` into the annotation and clears `holding_id`, because a
+spine image normally cannot distinguish physical copies of the same book.
+Saving GT writes these reviewed fields to the run's S3 `ground-truth.json`.
+DB Top-1, Top-3, false-confirmation, and candidate-pool-miss metrics include
+only annotations with a reviewer-selected `book_id` or `holding_id`. Corrected
+title and call-number text remains useful for OCR accuracy but cannot by itself
+serve as catalog-ranking truth.
+
 This harness compares four catalog reranking strategies on the same reviewed
 OCR/GT cases and the same RDS candidate pools.
 

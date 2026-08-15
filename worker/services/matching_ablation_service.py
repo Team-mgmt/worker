@@ -301,7 +301,16 @@ def evaluate_ablation_cases(
             started_at = time.perf_counter()
             ranked = score_candidate_rows(strategy, case.ocr, rows)
             latencies_ms.append((time.perf_counter() - started_at) * 1000.0)
-            if not (case.holding_id or case.book_id or case.title or case.call_number):
+            expected_title = normalize_core_title(case.title, case.author)
+            if expected_title:
+                title_evaluated += 1
+                title_correct += int(normalize_core_title(case.ocr.title, case.ocr.author) == expected_title)
+            expected_call = normalize_catalog_text(case.call_number).replace(" ", "")
+            if expected_call:
+                call_evaluated += 1
+                call_correct += int(normalize_catalog_text(case.ocr.call_number).replace(" ", "") == expected_call)
+
+            if not (case.holding_id or case.book_id):
                 continue
             evaluated += 1
             truth_in_pool = any(_row_identifier_matches(row, case) for row in rows)
@@ -312,15 +321,6 @@ def evaluate_ablation_cases(
             if ranked and ranked[0][1] >= confirmation_threshold:
                 confirmed += 1
                 wrong_confirmed += int(not is_top1)
-
-            expected_title = normalize_core_title(case.title, case.author)
-            if expected_title:
-                title_evaluated += 1
-                title_correct += int(normalize_core_title(case.ocr.title, case.ocr.author) == expected_title)
-            expected_call = normalize_catalog_text(case.call_number).replace(" ", "")
-            if expected_call:
-                call_evaluated += 1
-                call_correct += int(normalize_catalog_text(case.ocr.call_number).replace(" ", "") == expected_call)
 
         reports[strategy] = {
             "evaluated_count": evaluated,

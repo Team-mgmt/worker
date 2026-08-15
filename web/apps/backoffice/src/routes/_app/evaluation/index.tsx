@@ -5,10 +5,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
   CheckIcon,
+  Loader2Icon,
   MousePointer2Icon,
   PlusIcon,
   RotateCcwIcon,
   SaveIcon,
+  SearchIcon,
   Trash2Icon,
 } from "lucide-react";
 import {
@@ -138,6 +140,27 @@ type ArtifactDetail = {
   original_url: string;
 };
 
+type CatalogHolding = {
+  id: string;
+  callNumber?: string | null;
+  shelfLocName?: string | null;
+  book?: {
+    id: string;
+    bookname: string;
+    authors?: string | null;
+    isbn13?: string | null;
+  } | null;
+};
+
+function apiUrl(path: string) {
+  const configured = import.meta.env.VITE_BASE_URL || "/api";
+  const base = new URL(
+    configured.endsWith("/") ? configured : `${configured}/`,
+    window.location.origin,
+  );
+  return new URL(path.replace(/^\//, ""), base).toString();
+}
+
 function workerUrl(path: string) {
   const configured =
     import.meta.env.VITE_WORKER_BASE_URL ??
@@ -219,6 +242,10 @@ function EvaluationPage() {
     useState<MatchingMetrics | null>(null);
   const [message, setMessage] = useState("");
   const [isBusy, setIsBusy] = useState(true);
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogResults, setCatalogResults] = useState<CatalogHolding[]>([]);
+  const [isCatalogSearching, setIsCatalogSearching] = useState(false);
+  const [catalogMessage, setCatalogMessage] = useState("");
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasWidth, setCanvasWidth] = useState(900);
 
@@ -283,6 +310,9 @@ function EvaluationPage() {
       setPlacementMetrics(payload.ground_truth?.placement_metrics ?? null);
       setMatchingMetrics(payload.ground_truth?.matching_metrics ?? null);
       setSelectedId(initial[0]?.id ?? null);
+      setCatalogQuery("");
+      setCatalogResults([]);
+      setCatalogMessage("");
       setDraftPoints([]);
       setMode("select");
     } catch (error) {
@@ -302,6 +332,61 @@ function EvaluationPage() {
     setAnnotations((current) =>
       current.map((item) => (item.id === id ? { ...item, ...update } : item)),
     );
+  };
+  const selectAnnotation = (id: string | null) => {
+    setSelectedId(id);
+    setCatalogQuery("");
+    setCatalogResults([]);
+    setCatalogMessage("");
+  };
+  const searchCatalog = async () => {
+    const query = catalogQuery.trim() || selected?.title?.trim() || "";
+    if (query.length < 2) {
+      setCatalogMessage("검색어를 두 글자 이상 입력하세요.");
+      return;
+    }
+    setCatalogQuery(query);
+    setCatalogMessage("");
+    setIsCatalogSearching(true);
+    try {
+      const url = new URL(apiUrl("public/library-books"));
+      url.searchParams.set("libraryCode", libraryCode);
+      url.searchParams.set("query", query);
+      const response = await fetch(url);
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          payload?.message ?? `도서 검색 실패: ${response.status}`,
+        );
+      }
+      const byBookId = new Map<string, CatalogHolding>();
+      for (const holding of (payload?.data ?? []) as CatalogHolding[]) {
+        if (holding.book?.id && !byBookId.has(holding.book.id)) {
+          byBookId.set(holding.book.id, holding);
+        }
+      }
+      const nextResults = [...byBookId.values()];
+      setCatalogResults(nextResults);
+      setCatalogMessage(nextResults.length ? "" : "검색 결과가 없습니다.");
+    } catch (error) {
+      setCatalogResults([]);
+      setCatalogMessage(
+        error instanceof Error ? error.message : "도서 검색에 실패했습니다.",
+      );
+    } finally {
+      setIsCatalogSearching(false);
+    }
+  };
+  const selectCatalogBook = (holding: CatalogHolding) => {
+    if (!selected || !holding.book) return;
+    updateAnnotation(selected.id, {
+      title: holding.book.bookname,
+      author: holding.book.authors ?? null,
+      call_number: holding.callNumber ?? null,
+      book_id: holding.book.id,
+      holding_id: null,
+    });
+    setCatalogMessage(`정답 도서로 선택: ${holding.book.bookname}`);
   };
   const resetToPrediction = () => {
     if (!detail) return;
@@ -489,13 +574,18 @@ function EvaluationPage() {
               `${percent(structureMetrics.split_rate)} / ${percent(structureMetrics.merge_rate)}`,
             ],
           ].map(([label, value]) => (
-            <div key={label} className="border-b border-r px-4 py-3 xl:border-b-0">
+            <div
+              key={label}
+              className="border-b border-r px-4 py-3 xl:border-b-0"
+            >
               <p className="text-xs text-muted-foreground">{label}</p>
               <p className="mt-1 text-lg font-bold tabular-nums">{value}</p>
             </div>
           ))}
           <div className="col-span-2 border-t px-4 py-2 text-xs text-muted-foreground md:col-span-4 xl:col-span-7">
-            GT {structureMetrics.ground_truth_count}권 · 예측 {structureMetrics.prediction_count}개 · 한 GT에 예측 여러 개면 분할, 한 예측이 여러 GT를 덮으면 병합으로 계산합니다.
+            GT {structureMetrics.ground_truth_count}권 · 예측{" "}
+            {structureMetrics.prediction_count}개 · 한 GT에 예측 여러 개면 분할,
+            한 예측이 여러 GT를 덮으면 병합으로 계산합니다.
           </div>
         </div>
       ) : null}
@@ -521,20 +611,29 @@ function EvaluationPage() {
         <div className="mb-4 grid grid-cols-2 border bg-white md:grid-cols-4 xl:grid-cols-7">
           {[
             ["제목 정확도", percent(matchingMetrics.title_normalized_accuracy)],
-            ["청구기호 정확도", percent(matchingMetrics.call_number_exact_accuracy)],
+            [
+              "청구기호 정확도",
+              percent(matchingMetrics.call_number_exact_accuracy),
+            ],
             ["KDC 정확도", percent(matchingMetrics.kdc_accuracy)],
             ["도서기호 정확도", percent(matchingMetrics.book_code_accuracy)],
             ["DB Top-1", percent(matchingMetrics.top1_accuracy)],
             ["DB Top-3", percent(matchingMetrics.top3_accuracy)],
             ["오확정률", percent(matchingMetrics.false_confirmation_rate)],
           ].map(([label, value]) => (
-            <div key={label} className="border-b border-r px-4 py-3 xl:border-b-0">
+            <div
+              key={label}
+              className="border-b border-r px-4 py-3 xl:border-b-0"
+            >
               <p className="text-xs text-muted-foreground">{label}</p>
               <p className="mt-1 text-lg font-bold tabular-nums">{value}</p>
             </div>
           ))}
           <div className="col-span-2 border-t px-4 py-2 text-xs text-muted-foreground md:col-span-4 xl:col-span-7">
-            Polygon 연결 {matchingMetrics.polygon_matched_count}권 · DB GT {matchingMetrics.db_evaluated_count}권 · 자동 확정 {matchingMetrics.confirmed_count}권 중 오확정 {matchingMetrics.wrong_confirmation_count}권
+            Polygon 연결 {matchingMetrics.polygon_matched_count}권 · DB GT{" "}
+            {matchingMetrics.db_evaluated_count}권 · 자동 확정{" "}
+            {matchingMetrics.confirmed_count}권 중 오확정{" "}
+            {matchingMetrics.wrong_confirmation_count}권
           </div>
         </div>
       ) : null}
@@ -610,7 +709,7 @@ function EvaluationPage() {
                         draggable={mode === "select"}
                         onClick={(event) => {
                           event.cancelBubble = true;
-                          setSelectedId(annotation.id);
+                          selectAnnotation(annotation.id);
                         }}
                         onDragEnd={(event) => {
                           const offsetX = event.target.x();
@@ -728,7 +827,86 @@ function EvaluationPage() {
                 />
               </div>
               <div>
-                <Label>정답 소장 ID (holding_id)</Label>
+                <Label>DB 정답 도서 검색</Label>
+                <div className="mt-1 flex gap-2">
+                  <Input
+                    value={catalogQuery}
+                    placeholder={selected.title || "제목 또는 저자"}
+                    onChange={(event) => setCatalogQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void searchCatalog();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void searchCatalog()}
+                    disabled={isCatalogSearching}
+                  >
+                    {isCatalogSearching ? (
+                      <Loader2Icon className="size-4 animate-spin" />
+                    ) : (
+                      <SearchIcon className="size-4" />
+                    )}
+                    검색
+                  </Button>
+                </div>
+                {catalogMessage ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {catalogMessage}
+                  </p>
+                ) : null}
+                {catalogResults.length ? (
+                  <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
+                    {catalogResults.map((holding) => {
+                      if (!holding.book) return null;
+                      const isSelected = selected.book_id === holding.book.id;
+                      return (
+                        <button
+                          key={holding.book.id}
+                          type="button"
+                          className={`w-full border p-3 text-left text-sm transition-colors ${
+                            isSelected
+                              ? "border-blue-500 bg-blue-50"
+                              : "hover:bg-muted"
+                          }`}
+                          onClick={() => selectCatalogBook(holding)}
+                        >
+                          <span className="block font-semibold">
+                            {holding.book.bookname}
+                          </span>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            {holding.book.authors || "저자 미상"} ·{" "}
+                            {holding.callNumber || "청구기호 없음"}
+                          </span>
+                          {holding.shelfLocName ? (
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {holding.shelfLocName}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <Label>정답 도서 ID (book_id)</Label>
+                <Input
+                  className="mt-1 font-mono text-xs"
+                  placeholder="위 검색 결과에서 실제 책을 선택하세요"
+                  value={selected.book_id ?? ""}
+                  readOnly
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  같은 책의 여러 복본은 하나의 book_id 정답으로 평가합니다.
+                </p>
+              </div>
+              <div>
+                <Label>정답 소장 ID (holding_id, 선택 사항)</Label>
                 <Input
                   className="mt-1 font-mono text-xs"
                   placeholder="가능하면 RDS LibraryHolding.id 입력"
@@ -740,7 +918,8 @@ function EvaluationPage() {
                   }
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  입력하면 제목 유사도가 아니라 실제 소장자료 ID로 Top-1/Top-3를 평가합니다.
+                  입력하면 제목 유사도가 아니라 실제 소장자료 ID로 Top-1/Top-3를
+                  평가합니다.
                 </p>
               </div>
               <div>
@@ -772,7 +951,7 @@ function EvaluationPage() {
                   setAnnotations((current) =>
                     current.filter((item) => item.id !== selected.id),
                   );
-                  setSelectedId(null);
+                  selectAnnotation(null);
                 }}
               >
                 <Trash2Icon className="size-4" />

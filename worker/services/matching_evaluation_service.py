@@ -157,12 +157,9 @@ def calculate_matching_metrics(
                     normalize_catalog_text(predicted_book_code) == normalize_catalog_text(expected_book_code)
                 )
 
-        has_db_truth = bool(
-            annotation.get("holding_id")
-            or annotation.get("book_id")
-            or annotation.get("title")
-            or annotation.get("call_number")
-        )
+        # OCR text copied from a prediction is not catalog ground truth. Ranking
+        # metrics require a reviewer-selected database identifier.
+        has_db_truth = bool(annotation.get("holding_id") or annotation.get("book_id"))
         if not has_db_truth:
             continue
         counters["db_evaluated"] += 1
