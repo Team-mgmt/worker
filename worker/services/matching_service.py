@@ -312,7 +312,12 @@ async def query_catalog_candidate_rows(
     if prefix:
         where_parts.append('h."classNoClean" LIKE :class_prefix')
         params["class_prefix"] = f"{prefix}%"
-    if not evaluation_broad_pool and ocr_book_code and has_reliable_book_code(ocr_book_code):
+    used_book_code_prefix = bool(
+        not evaluation_broad_pool
+        and ocr_book_code
+        and has_reliable_book_code(ocr_book_code)
+    )
+    if used_book_code_prefix:
         where_parts.append('h."bookCode" LIKE :book_code_prefix')
         params["book_code_prefix"] = f"{ocr_book_code[0]}%"
     if not prefix:
@@ -343,6 +348,47 @@ async def query_catalog_candidate_rows(
     mapped_rows = result.mappings()
     broad_rows = list(mapped_rows.all() if hasattr(mapped_rows, "all") else mapped_rows)
     if not evaluation_broad_pool:
+        if not broad_rows and used_book_code_prefix and ocr_class_no:
+            # OCR can drop the leading Hangul author symbol (e.g. 진98ㅊ ->
+            # 98ㅊ). Retry only after a zero-row query, using the exact KDC
+            # class and no book-code prefix. Relaxed candidates are marked so
+            # downstream decision logic can keep them review-only.
+            fallback_stmt = text(
+                f"""
+                SELECT {select_columns}
+                FROM "LibraryHolding" h
+                JOIN "LibraryBook" b ON b.id = h."bookId"
+                WHERE h."libraryCode" = :library_code
+                  AND h."classNoClean" LIKE :exact_class_prefix
+                LIMIT 1500
+                """
+            )
+            try:
+                fallback_result = await session.execute(
+                    fallback_stmt,
+                    {
+                        "library_code": library_code,
+                        "exact_class_prefix": f"{ocr_class_no}%",
+                    },
+                )
+                fallback_mappings = fallback_result.mappings()
+                fallback_rows = list(
+                    fallback_mappings.all()
+                    if hasattr(fallback_mappings, "all")
+                    else fallback_mappings
+                )
+                if fallback_rows:
+                    print(
+                        "[matching] relaxed candidate fallback "
+                        f"order={ocr_item.detected_order} class={ocr_class_no!r} "
+                        f"rows={len(fallback_rows)}",
+                        flush=True,
+                    )
+                return [{**dict(row), "_relaxed_candidate": True} for row in fallback_rows]
+            except Exception as exc:
+                print(f"[matching] relaxed candidate query failed: {exc}", flush=True)
+                await session.rollback()
+                return []
         return broad_rows
 
     combined: list[Mapping[str, Any]] = []
@@ -391,6 +437,8 @@ def score_catalog_rows(
             has_reliable_book_code(ocr_book_code),
             has_ocr_title=bool(ocr_item.title),
         )
+        if row.get("_relaxed_candidate"):
+            match_method = f"{match_method}_relaxed"
 
         candidates.append(
             MatchCandidate(
@@ -456,6 +504,9 @@ def evaluate_misplacement(result: DetectionResult, est_shelf: Optional[Estimated
 
     if result.match_score < MIN_CONFIRMED_MATCH_SCORE:
         return "needs_review", "\ub9e4\uce6d \uc810\uc218\uac00 \ub0ae\uc544 \ud655\uc815 \ub3c4\uc11c\ub85c \ud310\uc815\ud558\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4."
+
+    if result.match_method and result.match_method.endswith("_relaxed"):
+        return "needs_review", "\uc644\ud654\ub41c KDC \ud6c4\ubcf4 \uac80\uc0c9\uc73c\ub85c \ucc3e\uc740 \ub3c4\uc11c\uc774\ubbc0\ub85c \uc218\ub3d9 \uac80\uc218\uac00 \ud544\uc694\ud569\ub2c8\ub2e4."
 
     if result.score_margin is not None and result.score_margin < 10.0 and result.match_score < 85.0:
         return "needs_review", "\uc0c1\uc704 \ud6c4\ubcf4 \uac04 \uc810\uc218 \ucc28\uc774\uac00 \uc791\uc544 \uac80\uc218\uac00 \ud544\uc694\ud569\ub2c8\ub2e4."

@@ -2,9 +2,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from worker.schemas.inference import OCRResultItem
+from worker.schemas.inference import DetectionResult, MatchCandidate, OCRResultItem
 from worker.services.matching_service import (
     character_ngram_tfidf_cosines,
+    evaluate_misplacement,
     find_matches_for_ocr_from_prisma_catalog,
     normalize_catalog_text,
     normalize_core_title,
@@ -173,3 +174,75 @@ async def test_ablation_candidate_pool_keeps_exact_rows_and_broadens_kdc_query()
     assert 'h."bookCode" LIKE :book_code_prefix' not in broad_statement
     assert "LIMIT 1500" not in broad_statement
     assert session.execute.await_args_list[1].args[1]["class_prefix"] == "813.6%"
+
+
+async def test_zero_candidate_query_retries_exact_kdc_without_book_code_prefix() -> None:
+    empty_exact = MagicMock()
+    empty_exact.mappings.return_value.all.return_value = []
+    empty_constrained = MagicMock()
+    empty_constrained.mappings.return_value.all.return_value = []
+    fallback = MagicMock()
+    fallback.mappings.return_value.all.return_value = [
+        {
+            "holding_id": "holding-first-snow",
+            "class_no": "813.6",
+            "class_no_clean": "813.6",
+            "book_code": "진98ㅊ",
+            "call_number": "813.6 진98ㅊ",
+            "book_id": "book-first-snow",
+            "bookname": "첫눈이 내려 : 진희 장편소설",
+            "normalized_bookname": "첫눈이 내려 : 진희 장편소설",
+            "authors": "진희",
+            "normalized_authors": "진희",
+        }
+    ]
+    session = AsyncMock()
+    session.execute.side_effect = [empty_exact, empty_constrained, fallback]
+
+    candidates = await find_matches_for_ocr_from_prisma_catalog(
+        session,
+        "111058",
+        OCRResultItem(
+            detected_order=33,
+            title="청눈이 내R",
+            author="진 희",
+            call_number="813.6 98ㅊ",
+        ),
+    )
+
+    assert session.execute.await_count == 3
+    fallback_statement = str(session.execute.await_args_list[2].args[0])
+    fallback_params = session.execute.await_args_list[2].args[1]
+    assert 'h."bookCode" LIKE :book_code_prefix' not in fallback_statement
+    assert fallback_params["exact_class_prefix"] == "813.6%"
+    assert candidates[0].book_id == "book-first-snow"
+    assert candidates[0].match_method.endswith("_relaxed")
+
+
+def test_relaxed_candidate_is_never_automatically_confirmed() -> None:
+    candidate = MatchCandidate(
+        book_id="book-first-snow",
+        holding_id="holding-first-snow",
+        title="첫눈이 내려 : 진희 장편소설",
+        author="진희",
+        call_number="813.6 진98ㅊ",
+        score=90.0,
+        match_method="call_number_relaxed",
+    )
+    result = DetectionResult(
+        detected_order=33,
+        ocr_title="청눈이 내R",
+        ocr_call_number="813.6 98ㅊ",
+        matched_book=candidate.title,
+        matched_call_number=candidate.call_number,
+        match_method=candidate.match_method,
+        match_score=candidate.score,
+        score_margin=20.0,
+        decision="normal",
+        top_candidates=[candidate],
+    )
+
+    decision, reason = evaluate_misplacement(result, None)
+
+    assert decision == "needs_review"
+    assert reason and "완화된 KDC 후보 검색" in reason
