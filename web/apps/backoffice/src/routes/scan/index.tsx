@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -6,7 +6,9 @@ import {
   CameraIcon,
   ImagesIcon,
   Loader2Icon,
+  ScanSearchIcon,
   SearchIcon,
+  SquareIcon,
   VideoIcon,
 } from "lucide-react";
 
@@ -91,8 +93,41 @@ function PatronBookFinder() {
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
   const [result, setResult] = useState<TargetResult | null>(null);
   const [videoResult, setVideoResult] = useState<TargetVideoResult | null>(null);
+  const [liveActive, setLiveActive] = useState(false);
+  const [liveStatus, setLiveStatus] = useState("");
+  const [liveResult, setLiveResult] = useState<TargetResult | null>(null);
+  const [liveFrameSize, setLiveFrameSize] = useState({ width: 1, height: 1 });
+  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+  const liveStreamRef = useRef<MediaStream | null>(null);
+  const liveSessionRef = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const stopLiveCamera = useCallback((message?: string) => {
+    liveSessionRef.current += 1;
+    liveStreamRef.current?.getTracks().forEach((track) => track.stop());
+    liveStreamRef.current = null;
+    setLiveActive(false);
+    setLiveResult(null);
+    setBusy(false);
+    if (message !== undefined) setLiveStatus(message);
+  }, []);
+
+  useEffect(() => () => stopLiveCamera(), [stopLiveCamera]);
+
+  const targetBody = (file: File, saveArtifacts = true) => {
+    if (!target?.book) return null;
+    const body = new FormData();
+    body.set("file", file);
+    body.set("holding_id", target.id);
+    body.set("library_code", libraryCode);
+    body.set("target_title", target.book.bookname);
+    if (target.book.authors) body.set("target_author", target.book.authors);
+    if (target.callNumber) body.set("target_call_number", target.callNumber);
+    if (target.book.isbn13) body.set("target_isbn13", target.book.isbn13);
+    body.set("save_artifacts", saveArtifacts ? "true" : "false");
+    return body;
+  };
 
   const search = async () => {
     if (query.trim().length < 2)
@@ -130,14 +165,8 @@ function PatronBookFinder() {
     await image.decode();
     setImageSize({ width: image.naturalWidth, height: image.naturalHeight });
     try {
-      const body = new FormData();
-      body.set("file", file);
-      body.set("holding_id", target.id);
-      body.set("library_code", libraryCode);
-      body.set("target_title", target.book.bookname);
-      if (target.book.authors) body.set("target_author", target.book.authors);
-      if (target.callNumber) body.set("target_call_number", target.callNumber);
-      if (target.book.isbn13) body.set("target_isbn13", target.book.isbn13);
+      const body = targetBody(file);
+      if (!body) return;
       const response = await fetch(workerUrl("inference/find_target_book"), {
         method: "POST",
         body,
@@ -152,6 +181,132 @@ function PatronBookFinder() {
       );
     } finally {
       setBusy(false);
+    }
+  };
+
+  const startLiveSearch = async () => {
+    if (!target?.book || liveActive) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("이 브라우저에서는 실시간 카메라를 사용할 수 없습니다. HTTPS 접속인지 확인하세요.");
+      return;
+    }
+
+    const sessionId = liveSessionRef.current + 1;
+    liveSessionRef.current = sessionId;
+    setBusy(true);
+    setError("");
+    setResult(null);
+    setVideoResult(null);
+    setPreview(null);
+    setLiveResult(null);
+    setLiveStatus("카메라 권한을 확인하고 있습니다.");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      });
+      if (liveSessionRef.current !== sessionId) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      liveStreamRef.current = stream;
+      setLiveActive(true);
+      setLiveStatus("서가를 천천히 비춰주세요. 프레임 0/8 분석 대기 중");
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const video = liveVideoRef.current;
+      if (!video) throw new Error("카메라 화면을 초기화하지 못했습니다.");
+      video.srcObject = stream;
+      await video.play();
+
+      let bestPossible:
+        | { result: TargetResult; dataUrl: string; width: number; height: number }
+        | undefined;
+      let lastAttempt:
+        | { result: TargetResult; dataUrl: string; width: number; height: number }
+        | undefined;
+
+      for (let frameNumber = 1; frameNumber <= 8; frameNumber += 1) {
+        if (liveSessionRef.current !== sessionId) return;
+        if (!video.videoWidth || !video.videoHeight) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          frameNumber -= 1;
+          continue;
+        }
+
+        setLiveResult(null);
+        setLiveStatus(`프레임 ${frameNumber}/8 분석 중 · 카메라를 잠시 고정해주세요`);
+        const scale = Math.min(1, 1600 / video.videoWidth);
+        const width = Math.round(video.videoWidth * scale);
+        const height = Math.round(video.videoHeight * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        setLiveFrameSize({ width, height });
+        canvas.getContext("2d")?.drawImage(video, 0, 0, width, height);
+        const blob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", 0.88),
+        );
+        if (!blob) throw new Error("카메라 프레임을 생성하지 못했습니다.");
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
+        const frameFile = new File([blob], `live-frame-${frameNumber}.jpg`, {
+          type: "image/jpeg",
+        });
+        const body = targetBody(frameFile, false);
+        if (!body) return;
+        const response = await fetch(workerUrl("inference/find_target_book"), {
+          method: "POST",
+          body,
+        });
+        const payload = await response.json();
+        if (!response.ok)
+          throw new Error(payload?.detail || "실시간 프레임 분석에 실패했습니다.");
+        if (liveSessionRef.current !== sessionId) return;
+
+        const frameResult = payload as TargetResult;
+        lastAttempt = { result: frameResult, dataUrl, width, height };
+        setLiveResult(frameResult);
+        if (
+          frameResult.status === "possible" &&
+          (!bestPossible ||
+            (frameResult.best_detection?.score ?? 0) >
+              (bestPossible.result.best_detection?.score ?? 0))
+        ) {
+          bestPossible = lastAttempt;
+        }
+        if (frameResult.status === "found") {
+          setPreview(dataUrl);
+          setImageSize({ width, height });
+          setResult(frameResult);
+          stopLiveCamera("목표 도서를 발견해 정확한 프레임에서 화면을 멈췄습니다.");
+          return;
+        }
+        setLiveStatus(
+          frameResult.status === "possible"
+            ? `프레임 ${frameNumber}/8 · 유사 후보 발견, 계속 확인 중`
+            : `프레임 ${frameNumber}/8 · 아직 목표 도서를 찾지 못했습니다`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+
+      const finalAttempt = bestPossible ?? lastAttempt;
+      if (finalAttempt) {
+        setPreview(finalAttempt.dataUrl);
+        setImageSize({ width: finalAttempt.width, height: finalAttempt.height });
+        setResult(finalAttempt.result);
+      }
+      stopLiveCamera("라이브 탐색이 끝났습니다. 필요하면 다시 시작하세요.");
+    } catch (cause) {
+      stopLiveCamera("");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "실시간 카메라를 시작하지 못했습니다.",
+      );
     }
   };
 
@@ -363,7 +518,70 @@ function PatronBookFinder() {
               />
             </label>
           </Button>
+          <Button
+            size="lg"
+            variant="default"
+            disabled={busy && !liveActive}
+            className="col-span-2"
+            onClick={() => void startLiveSearch()}
+          >
+            <ScanSearchIcon className="size-5" />
+            실시간 카메라로 찾기
+          </Button>
         </div>
+      ) : null}
+
+      {liveActive ? (
+        <section className="mt-4 overflow-hidden border bg-zinc-950 text-white">
+          <div className="relative">
+            <video
+              ref={liveVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className="block w-full"
+            />
+            <div className="pointer-events-none absolute inset-3 border-2 border-dashed border-white/50" />
+            {(liveResult?.candidate_detections ?? []).map((detection, index) => {
+              const bbox = detection.bbox;
+              if (!bbox || bbox.length !== 4) return null;
+              return (
+                <div
+                  key={detection.detected_order}
+                  className="pointer-events-none absolute border-4 border-amber-400 bg-amber-400/10"
+                  style={{
+                    left: `${(bbox[0] / liveFrameSize.width) * 100}%`,
+                    top: `${(bbox[1] / liveFrameSize.height) * 100}%`,
+                    width: `${((bbox[2] - bbox[0]) / liveFrameSize.width) * 100}%`,
+                    height: `${((bbox[3] - bbox[1]) / liveFrameSize.height) * 100}%`,
+                  }}
+                >
+                  <span className="absolute -top-7 left-0 bg-amber-500 px-2 py-1 text-xs font-bold">
+                    최근 후보 {index + 1}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between gap-3 p-3">
+            <p className="text-sm">{liveStatus}</p>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => stopLiveCamera("사용자가 라이브 탐색을 중지했습니다.")}
+            >
+              <SquareIcon className="size-4" />
+              중지
+            </Button>
+          </div>
+          <p className="px-3 pb-3 text-xs text-zinc-400">
+            서버 분석 결과가 도착할 때마다 최근 후보가 표시됩니다. 정확한 위치 확인을 위해 카메라를 천천히 움직이세요.
+          </p>
+        </section>
+      ) : liveStatus ? (
+        <p className="mt-4 border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+          {liveStatus}
+        </p>
       ) : null}
 
       {error ? (

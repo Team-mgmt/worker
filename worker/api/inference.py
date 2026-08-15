@@ -537,6 +537,7 @@ async def find_target_book_in_image(
     target_author: str | None = Form(default=None),
     target_call_number: str | None = Form(default=None),
     target_isbn13: str | None = Form(default=None),
+    save_artifacts: bool = Form(default=True),
 ):
     """Find one user-selected catalog holding in an uploaded shelf image."""
 
@@ -614,7 +615,7 @@ async def find_target_book_in_image(
                 f"best_order={response.best_detection.detected_order if response.best_detection else None} "
                 f"score={response.best_detection.score if response.best_detection else 0.0:.1f}"
             )
-            if scan_artifact_service.enabled:
+            if save_artifacts and scan_artifact_service.enabled:
                 artifact_created_at = datetime.now(UTC)
                 artifact_prefix = scan_artifact_service.build_prefix(library_code, run_id, artifact_created_at)
                 response.artifact_run_id = run_id
@@ -742,7 +743,7 @@ async def find_target_book_in_image(
         f"spines={len(detections)} ocr_spines={len(ocr_results)} detection={detection_elapsed:.1f}s "
         f"ocr={ocr_elapsed:.1f}s total={time.perf_counter() - request_started_at:.1f}s"
     )
-    if scan_artifact_service.enabled:
+    if save_artifacts and scan_artifact_service.enabled:
         artifact_created_at = datetime.now(UTC)
         artifact_prefix = scan_artifact_service.build_prefix(library_code, run_id, artifact_created_at)
         response.artifact_run_id = run_id
@@ -855,6 +856,7 @@ async def find_target_book_in_video(
             target_author=target_author,
             target_call_number=target_call_number,
             target_isbn13=target_isbn13,
+            save_artifacts=False,
         )
         frame_response = frame_response.model_copy(
             update={"artifact_run_id": None, "artifact_prefix": None}
