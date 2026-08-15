@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from worker.schemas.artifact_evaluation import DetectionMetrics, DetectionStructureMetrics, PlacementMetrics
+from worker.schemas.artifact_evaluation import DetectionMatch, DetectionMetrics, DetectionStructureMetrics, PlacementMetrics
 
 
 @dataclass(frozen=True)
@@ -190,6 +190,69 @@ def calculate_detection_metrics(
         mean_matched_iou=round(sum(matched_ious) / len(matched_ious), 6) if matched_ious else 0.0,
         count_error=len(ordered_predictions) - len(ground_truth),
     )
+
+
+def calculate_detection_matches(
+    predictions: list[PredictionPolygon],
+    annotations: list[dict],
+    iou_threshold: float = 0.5,
+) -> list[DetectionMatch]:
+    """Return the same confidence-ordered one-to-one assignments used by detection metrics."""
+
+    ordered_predictions = sorted(
+        enumerate(predictions),
+        key=lambda item: item[1].confidence,
+        reverse=True,
+    )
+    matched_ground_truth: set[int] = set()
+    matches: list[DetectionMatch] = []
+    for prediction_index, prediction in ordered_predictions:
+        best_index = -1
+        best_iou = 0.0
+        for ground_truth_index, annotation in enumerate(annotations):
+            if ground_truth_index in matched_ground_truth:
+                continue
+            iou = polygon_iou(prediction.polygon, annotation["polygon"])
+            if iou > best_iou:
+                best_index = ground_truth_index
+                best_iou = iou
+
+        if best_index >= 0 and best_iou >= iou_threshold:
+            annotation = annotations[best_index]
+            matched_ground_truth.add(best_index)
+            matches.append(
+                DetectionMatch(
+                    status="matched",
+                    ground_truth_index=best_index,
+                    ground_truth_id=str(annotation.get("id") or ""),
+                    prediction_index=prediction_index,
+                    iou=round(best_iou, 6),
+                    confidence=prediction.confidence,
+                    ground_truth_polygon=annotation["polygon"],
+                    prediction_polygon=prediction.polygon,
+                )
+            )
+        else:
+            matches.append(
+                DetectionMatch(
+                    status="false_positive",
+                    prediction_index=prediction_index,
+                    confidence=prediction.confidence,
+                    prediction_polygon=prediction.polygon,
+                )
+            )
+
+    for ground_truth_index, annotation in enumerate(annotations):
+        if ground_truth_index not in matched_ground_truth:
+            matches.append(
+                DetectionMatch(
+                    status="missed",
+                    ground_truth_index=ground_truth_index,
+                    ground_truth_id=str(annotation.get("id") or ""),
+                    ground_truth_polygon=annotation["polygon"],
+                )
+            )
+    return matches
 
 
 def calculate_placement_metrics(

@@ -66,6 +66,16 @@ type DetectionMetrics = {
   mean_matched_iou: number;
   count_error: number;
 };
+type DetectionMatch = {
+  status: "matched" | "false_positive" | "missed";
+  ground_truth_index?: number | null;
+  ground_truth_id?: string | null;
+  prediction_index?: number | null;
+  iou: number;
+  confidence: number;
+  ground_truth_polygon?: Point[] | null;
+  prediction_polygon?: Point[] | null;
+};
 type DetectionStructureMetrics = {
   ground_truth_count: number;
   prediction_count: number;
@@ -131,6 +141,7 @@ type ArtifactDetail = {
   ground_truth?: {
     annotations?: Annotation[];
     metrics?: DetectionMetrics;
+    detection_matches?: DetectionMatch[];
     structure_metrics?: DetectionStructureMetrics;
     placement_metrics?: PlacementMetrics | null;
     matching_metrics?: MatchingMetrics | null;
@@ -236,6 +247,10 @@ function EvaluationPage() {
   const [draftPoints, setDraftPoints] = useState<Point[]>([]);
   const [mode, setMode] = useState<"select" | "add">("select");
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
+  const [detectionMatches, setDetectionMatches] = useState<DetectionMatch[]>(
+    [],
+  );
+  const [showIouOverlay, setShowIouOverlay] = useState(true);
   const [structureMetrics, setStructureMetrics] =
     useState<DetectionStructureMetrics | null>(null);
   const [placementMetrics, setPlacementMetrics] =
@@ -308,6 +323,7 @@ function EvaluationPage() {
       setDetail(payload);
       setAnnotations(initial);
       setMetrics(payload.ground_truth?.metrics ?? null);
+      setDetectionMatches(payload.ground_truth?.detection_matches ?? []);
       setStructureMetrics(payload.ground_truth?.structure_metrics ?? null);
       setPlacementMetrics(payload.ground_truth?.placement_metrics ?? null);
       setMatchingMetrics(payload.ground_truth?.matching_metrics ?? null);
@@ -329,6 +345,10 @@ function EvaluationPage() {
   const canvasHeight = detail ? detail.image_height * scale : 520;
   const selected =
     annotations.find((annotation) => annotation.id === selectedId) ?? null;
+  const selectedDetectionMatch =
+    detectionMatches.find(
+      (match) => match.ground_truth_id && match.ground_truth_id === selectedId,
+    ) ?? null;
 
   const updateAnnotation = (id: string, update: Partial<Annotation>) => {
     setAnnotations((current) =>
@@ -396,6 +416,7 @@ function EvaluationPage() {
     setAnnotations(next);
     setSelectedId(next[0]?.id ?? null);
     setMetrics(null);
+    setDetectionMatches([]);
     setStructureMetrics(null);
     setPlacementMetrics(null);
     setMatchingMetrics(null);
@@ -446,11 +467,13 @@ function EvaluationPage() {
       }
       const payload = (await response.json()) as {
         metrics: DetectionMetrics;
+        detection_matches: DetectionMatch[];
         structure_metrics: DetectionStructureMetrics;
         placement_metrics?: PlacementMetrics | null;
         matching_metrics?: MatchingMetrics | null;
       };
       setMetrics(payload.metrics);
+      setDetectionMatches(payload.detection_matches);
       setStructureMetrics(payload.structure_metrics);
       setPlacementMetrics(payload.placement_metrics ?? null);
       setMatchingMetrics(payload.matching_metrics ?? null);
@@ -675,6 +698,14 @@ function EvaluationPage() {
                 <RotateCcwIcon className="size-4" />
                 예측 복원
               </Button>
+              <Button
+                size="sm"
+                variant={showIouOverlay ? "secondary" : "ghost"}
+                onClick={() => setShowIouOverlay((current) => !current)}
+                disabled={!detectionMatches.length}
+              >
+                IoU 비교
+              </Button>
             </div>
             <span className="text-xs text-zinc-300">
               GT {annotations.length}개{" "}
@@ -694,6 +725,29 @@ function EvaluationPage() {
                     width={detail.image_width}
                     height={detail.image_height}
                   />
+                  {showIouOverlay
+                    ? detectionMatches.map((match, index) => {
+                        if (!match.prediction_polygon) return null;
+                        const isFalsePositive =
+                          match.status === "false_positive";
+                        return (
+                          <Line
+                            key={`prediction-${match.prediction_index ?? index}`}
+                            points={match.prediction_polygon.flat()}
+                            closed
+                            stroke={isFalsePositive ? "#ef4444" : "#38bdf8"}
+                            strokeWidth={3 / scale}
+                            dash={[10 / scale, 7 / scale]}
+                            fill={
+                              isFalsePositive
+                                ? "rgba(239,68,68,0.10)"
+                                : "rgba(56,189,248,0.06)"
+                            }
+                            listening={false}
+                          />
+                        );
+                      })
+                    : null}
                   {annotations.map((annotation) => {
                     const active = annotation.id === selectedId;
                     return (
@@ -729,12 +783,21 @@ function EvaluationPage() {
                   })}
                   {annotations.map((annotation, index) => {
                     const [x, y] = annotation.polygon[0];
+                    const match = detectionMatches.find(
+                      (item) => item.ground_truth_id === annotation.id,
+                    );
                     return (
                       <Text
                         key={`label-${annotation.id}`}
                         x={x}
                         y={y - 24 / scale}
-                        text={`${index + 1}`}
+                        text={`${index + 1}${
+                          showIouOverlay && match
+                            ? match.status === "matched"
+                              ? ` · IoU ${(match.iou * 100).toFixed(1)}%`
+                              : " · 누락"
+                            : ""
+                        }`}
                         fill="white"
                         fontSize={18 / scale}
                       />
@@ -794,6 +857,23 @@ function EvaluationPage() {
           </div>
           {selected ? (
             <div className="space-y-4 p-4">
+              {detectionMatches.length ? (
+                <div className="border bg-slate-50 p-3 text-sm">
+                  <p className="font-semibold">개별 검출 비교</p>
+                  {selectedDetectionMatch?.status === "matched" ? (
+                    <p className="mt-1">
+                      IoU {percent(selectedDetectionMatch.iou)} · 예측 신뢰도{" "}
+                      {percent(selectedDetectionMatch.confidence)}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-red-600">대응 예측 없음(FN)</p>
+                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    초록 실선은 GT, 파란 점선은 연결된 예측, 빨간 점선은
+                    중복·오검출(FP)입니다.
+                  </p>
+                </div>
+              ) : null}
               <div>
                 <Label>제목</Label>
                 <Input

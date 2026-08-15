@@ -1,5 +1,6 @@
 from worker.services.detection_evaluation_service import (
     PredictionPolygon,
+    calculate_detection_matches,
     calculate_detection_metrics,
     calculate_detection_structure_metrics,
     calculate_placement_metrics,
@@ -80,6 +81,22 @@ def test_duplicate_prediction_is_counted_as_false_positive() -> None:
     assert metrics.recall == 1.0
     assert metrics.ap50 == 1.0
     assert metrics.count_error == 1
+
+
+def test_detection_matches_expose_per_spine_iou_and_false_positives() -> None:
+    target = square(0, 0, 10, 100)
+    duplicate = square(0, 0, 5, 100)
+    predictions = [PredictionPolygon(target, 0.9), PredictionPolygon(duplicate, 0.5)]
+
+    matches = calculate_detection_matches(
+        predictions,
+        [{"id": "spine-1", "polygon": target}],
+    )
+
+    assert matches[0].status == "matched"
+    assert matches[0].ground_truth_id == "spine-1"
+    assert matches[0].iou == 1.0
+    assert matches[1].status == "false_positive"
 
 
 def test_placement_metrics_compare_decisions_after_polygon_matching() -> None:

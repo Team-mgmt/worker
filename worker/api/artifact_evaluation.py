@@ -15,6 +15,7 @@ from worker.schemas.artifact_evaluation import (
     GroundTruthSaveResponse,
 )
 from worker.services.detection_evaluation_service import (
+    calculate_detection_matches,
     calculate_detection_metrics,
     calculate_detection_structure_metrics,
     calculate_placement_metrics,
@@ -108,6 +109,7 @@ async def save_ground_truth(
 
     predictions = predictions_from_result(result)
     metrics = calculate_detection_metrics(predictions, [annotation["polygon"] for annotation in annotations])
+    detection_matches = calculate_detection_matches(predictions, annotations)
     structure_metrics = calculate_detection_structure_metrics(
         predictions,
         [annotation["polygon"] for annotation in annotations],
@@ -135,6 +137,7 @@ async def save_ground_truth(
         "model": result.get("model"),
         "annotations": annotations,
         "metrics": metrics.model_dump(mode="json"),
+        "detection_matches": [match.model_dump(mode="json") for match in detection_matches],
         "structure_metrics": structure_metrics.model_dump(mode="json"),
         "placement_metrics": placement_metrics.model_dump(mode="json") if placement_metrics else None,
         "matching_metrics": matching_metrics.model_dump(mode="json") if matching_metrics else None,
@@ -149,6 +152,7 @@ async def save_ground_truth(
     return GroundTruthSaveResponse(
         key=key,
         metrics=metrics,
+        detection_matches=detection_matches,
         structure_metrics=structure_metrics,
         placement_metrics=placement_metrics,
         matching_metrics=matching_metrics,

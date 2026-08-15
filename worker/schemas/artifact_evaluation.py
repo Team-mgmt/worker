@@ -43,6 +43,17 @@ class DetectionMetrics(BaseModel):
     count_error: int
 
 
+class DetectionMatch(BaseModel):
+    status: Literal["matched", "false_positive", "missed"]
+    ground_truth_index: int | None = None
+    ground_truth_id: str | None = None
+    prediction_index: int | None = None
+    iou: float = 0.0
+    confidence: float = 0.0
+    ground_truth_polygon: list[list[float]] | None = None
+    prediction_polygon: list[list[float]] | None = None
+
+
 class DetectionStructureMetrics(BaseModel):
     ground_truth_count: int
     prediction_count: int
@@ -118,6 +129,7 @@ class ArtifactRunDetail(BaseModel):
 class GroundTruthSaveResponse(BaseModel):
     key: str
     metrics: DetectionMetrics
+    detection_matches: list[DetectionMatch]
     structure_metrics: DetectionStructureMetrics
     placement_metrics: PlacementMetrics | None = None
     matching_metrics: MatchingMetrics | None = None
