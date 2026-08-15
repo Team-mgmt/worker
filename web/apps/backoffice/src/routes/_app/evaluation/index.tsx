@@ -193,8 +193,10 @@ function predictionAnnotations(detail: ArtifactDetail): Annotation[] {
         title: result.ocr_title,
         author: result.ocr_author,
         call_number: result.ocr_call_number,
-        holding_id: result.matched_holding_id,
-        book_id: result.matched_book_id,
+        // Model output is a hypothesis, not reviewed ground truth. Catalog IDs
+        // are populated only after a reviewer selects the actual book.
+        holding_id: null,
+        book_id: null,
         placement_status: "normal" as const,
       },
     ];
@@ -904,6 +906,22 @@ function EvaluationPage() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   같은 책의 여러 복본은 하나의 book_id 정답으로 평가합니다.
                 </p>
+                {selected.book_id || selected.holding_id ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-2 w-full"
+                    onClick={() => {
+                      updateAnnotation(selected.id, {
+                        book_id: null,
+                        holding_id: null,
+                      });
+                      setCatalogMessage("정답 도서 선택을 해제했습니다.");
+                    }}
+                  >
+                    정답 선택 해제
+                  </Button>
+                ) : null}
               </div>
               <div>
                 <Label>정답 소장 ID (holding_id, 선택 사항)</Label>
