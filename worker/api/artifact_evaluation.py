@@ -22,9 +22,49 @@ from worker.services.detection_evaluation_service import (
     predictions_from_result,
 )
 from worker.services.matching_evaluation_service import calculate_matching_metrics
+from worker.services.matching_service import normalize_catalog_text, normalize_core_title, split_call_number
 from worker.services.scan_artifact_service import scan_artifact_service
 
 router = APIRouter(prefix="/inference/artifacts", tags=["Artifact evaluation"])
+
+
+def build_matching_diagnostics(result: dict) -> list[dict]:
+    comparisons = {
+        item.get("detected_order"): item
+        for item in result.get("matching_comparison", {}).get("spines", [])
+        if isinstance(item, dict)
+    }
+    diagnostics: list[dict] = []
+    for prediction_index, item in enumerate(result.get("inference", {}).get("results", [])):
+        if not isinstance(item, dict):
+            continue
+        detected_order = item.get("detected_order")
+        title = item.get("ocr_title") or item.get("title")
+        author = item.get("ocr_author") or item.get("author")
+        call_number = item.get("ocr_call_number") or item.get("call_number")
+        kdc, book_code = split_call_number(call_number or "")
+        diagnostics.append(
+            {
+                "prediction_index": prediction_index,
+                "detected_order": detected_order,
+                "raw_text": item.get("ocr_raw_text") or item.get("raw_text"),
+                "parsed_title": title,
+                "parsed_author": author,
+                "parsed_call_number": call_number,
+                "normalized_title": normalize_core_title(title, author),
+                "normalized_author": normalize_catalog_text(author),
+                "normalized_call_number": normalize_catalog_text(call_number),
+                "kdc": kdc,
+                "book_code": book_code,
+                "decision": item.get("decision"),
+                "match_score": item.get("match_score"),
+                "matched_book": item.get("matched_book"),
+                "matched_call_number": item.get("matched_call_number"),
+                "top_candidates": item.get("top_candidates") or [],
+                "comparison": comparisons.get(detected_order),
+            }
+        )
+    return diagnostics
 
 
 def validated_run_id(run_id: str) -> str:
@@ -71,6 +111,7 @@ async def get_artifact_run(run_id: str, library_code: str | None = None):
         prefix=prefix,
         result=result,
         ground_truth=ground_truth,
+        matching_diagnostics=build_matching_diagnostics(result),
         image_width=image_width,
         image_height=image_height,
         original_url=f"/inference/artifacts/{run_id}/original{library_query}",

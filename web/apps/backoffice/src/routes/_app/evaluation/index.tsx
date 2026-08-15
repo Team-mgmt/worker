@@ -134,6 +134,41 @@ type PredictionResult = {
   matched_holding_id?: string | null;
   matched_book_id?: string | null;
 };
+type MatchingCandidate = {
+  rank?: number;
+  holding_id?: string | null;
+  book_id?: string | null;
+  title: string;
+  author?: string | null;
+  call_number?: string | null;
+  score: number;
+};
+type MatchingStrategyResult = {
+  latency_ms: number;
+  top_candidates: MatchingCandidate[];
+};
+type MatchingDiagnostic = {
+  prediction_index: number;
+  detected_order: number;
+  raw_text?: string | null;
+  parsed_title?: string | null;
+  parsed_author?: string | null;
+  parsed_call_number?: string | null;
+  normalized_title: string;
+  normalized_author: string;
+  normalized_call_number: string;
+  kdc?: string | null;
+  book_code?: string | null;
+  decision?: string | null;
+  match_score?: number | null;
+  matched_book?: string | null;
+  matched_call_number?: string | null;
+  top_candidates: MatchingCandidate[];
+  comparison?: {
+    candidate_pool_size: number;
+    strategies: Record<string, MatchingStrategyResult>;
+  } | null;
+};
 type ArtifactDetail = {
   run_id: string;
   prefix: string;
@@ -146,6 +181,7 @@ type ArtifactDetail = {
     placement_metrics?: PlacementMetrics | null;
     matching_metrics?: MatchingMetrics | null;
   } | null;
+  matching_diagnostics?: MatchingDiagnostic[];
   image_width: number;
   image_height: number;
   original_url: string;
@@ -236,6 +272,13 @@ function useHtmlImage(source: string | null) {
 function percent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
 }
+
+const STRATEGY_LABELS: Record<string, string> = {
+  baseline: "Baseline RapidFuzz",
+  preprocessed_fuzzy: "전처리 + RapidFuzz",
+  tfidf: "문자 n-gram TF-IDF",
+  final: "최종 결합",
+};
 
 function EvaluationPage() {
   const [libraryCode, setLibraryCode] = useState("111058");
@@ -359,6 +402,12 @@ function EvaluationPage() {
   const selectedFalsePositives = selectedDetectionMatches.filter(
     (match) => match.status === "false_positive",
   );
+  const selectedMatchingDiagnostic =
+    detail?.matching_diagnostics?.find(
+      (diagnostic) =>
+        diagnostic.prediction_index ===
+        selectedDetectionMatch?.prediction_index,
+    ) ?? null;
   const selectedComparisonViewBox = useMemo(() => {
     if (!detail || !selected) return null;
     const points = [
@@ -969,6 +1018,119 @@ function EvaluationPage() {
                     초록 실선은 GT, 파란 점선은 연결된 예측, 빨간 점선은 이 책과
                     겹치는 중복·오검출입니다.
                   </p>
+                </div>
+              ) : null}
+              {selectedMatchingDiagnostic ? (
+                <div className="space-y-3 border bg-white p-3 text-sm">
+                  <div>
+                    <p className="font-semibold">텍스트 → DB 매칭 추적</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      책등 {selectedMatchingDiagnostic.detected_order}번 ·
+                      후보군{" "}
+                      {selectedMatchingDiagnostic.comparison
+                        ?.candidate_pool_size ??
+                        selectedMatchingDiagnostic.top_candidates.length}
+                      권
+                    </p>
+                  </div>
+                  <div className="rounded bg-zinc-950 p-2 text-xs text-zinc-100">
+                    <p className="text-zinc-400">OCR 원문</p>
+                    <p className="mt-1 whitespace-pre-wrap">
+                      {selectedMatchingDiagnostic.raw_text ||
+                        "인식 텍스트 없음"}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 text-xs">
+                    <span className="text-muted-foreground">분리 제목</span>
+                    <span>
+                      {selectedMatchingDiagnostic.parsed_title || "-"}
+                    </span>
+                    <span className="text-muted-foreground">분리 저자</span>
+                    <span>
+                      {selectedMatchingDiagnostic.parsed_author || "-"}
+                    </span>
+                    <span className="text-muted-foreground">청구기호</span>
+                    <span>
+                      {selectedMatchingDiagnostic.parsed_call_number || "-"}
+                    </span>
+                    <span className="text-muted-foreground">핵심 제목</span>
+                    <span className="font-semibold text-blue-700">
+                      {selectedMatchingDiagnostic.normalized_title || "-"}
+                    </span>
+                    <span className="text-muted-foreground">정규 저자</span>
+                    <span>
+                      {selectedMatchingDiagnostic.normalized_author || "-"}
+                    </span>
+                    <span className="text-muted-foreground">KDC</span>
+                    <span>{selectedMatchingDiagnostic.kdc || "-"}</span>
+                    <span className="text-muted-foreground">도서기호</span>
+                    <span>{selectedMatchingDiagnostic.book_code || "-"}</span>
+                  </div>
+                  {selectedMatchingDiagnostic.comparison ? (
+                    <div className="space-y-3">
+                      {Object.entries(
+                        selectedMatchingDiagnostic.comparison.strategies,
+                      ).map(([strategy, result]) => (
+                        <div key={strategy} className="border p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-semibold">
+                              {STRATEGY_LABELS[strategy] ?? strategy}
+                            </p>
+                            <span className="text-xs text-muted-foreground">
+                              {result.latency_ms.toFixed(2)}ms
+                            </span>
+                          </div>
+                          <div className="mt-2 space-y-1">
+                            {result.top_candidates.length ? (
+                              result.top_candidates
+                                .slice(0, 3)
+                                .map((candidate) => {
+                                  const isTruth = Boolean(
+                                    selected.book_id &&
+                                    candidate.book_id === selected.book_id,
+                                  );
+                                  return (
+                                    <div
+                                      key={`${strategy}-${candidate.rank}-${candidate.book_id}`}
+                                      className={`rounded border px-2 py-1.5 text-xs ${
+                                        isTruth
+                                          ? "border-green-500 bg-green-50"
+                                          : "bg-slate-50"
+                                      }`}
+                                    >
+                                      <div className="flex justify-between gap-2">
+                                        <span className="font-medium">
+                                          {candidate.rank ?? "-"}위 ·{" "}
+                                          {candidate.title}
+                                        </span>
+                                        <span>
+                                          {candidate.score.toFixed(1)}
+                                        </span>
+                                      </div>
+                                      <p className="mt-0.5 text-muted-foreground">
+                                        {candidate.author || "저자 미상"} ·{" "}
+                                        {candidate.call_number ||
+                                          "청구기호 없음"}
+                                        {isTruth ? " · GT 정답" : ""}
+                                      </p>
+                                    </div>
+                                  );
+                                })
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                후보가 없습니다.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      이 실행에는 네 전략 비교 데이터가 없습니다. 새 관리자
+                      분석부터 저장됩니다.
+                    </p>
+                  )}
                 </div>
               ) : null}
               <div>

@@ -121,6 +121,7 @@ class ArtifactRunDetail(BaseModel):
     prefix: str
     result: dict
     ground_truth: dict | None = None
+    matching_diagnostics: list[dict] = Field(default_factory=list)
     image_width: int
     image_height: int
     original_url: str
