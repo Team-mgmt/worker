@@ -504,7 +504,7 @@ function PatronBookFinder() {
               ) : (
                 <VideoIcon className="size-5" />
               )}
-              동영상으로 찾기 (최대 15초)
+              동영상으로 찾기 (최대 30초)
               <input
                 className="sr-only"
                 type="file"

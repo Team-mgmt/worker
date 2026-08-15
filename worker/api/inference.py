@@ -828,7 +828,7 @@ async def find_target_book_in_video(
             video_path,
             video_dir / "frames",
             interval_seconds=sample_interval_seconds,
-            max_duration_seconds=15.0,
+            max_duration_seconds=30.0,
             max_candidates=30,
         )
     except ValueError as exc:

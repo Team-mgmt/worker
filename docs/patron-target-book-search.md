@@ -11,7 +11,7 @@ The patron flow is separate from the librarian full-catalog matching flow.
 
 The same `/scan` page also supports a short patron video without replacing the image flow:
 
-1. The patron records or selects a video of at most 15 seconds.
+1. The patron records or selects a video of at most 30 seconds.
 2. `POST /worker/inference/find_target_book_video` samples the video every second.
 3. It chooses up to three sharp frames with temporal spacing instead of analyzing every frame.
 4. Frames are checked in playback order with the existing target-image pipeline.
@@ -70,6 +70,6 @@ After deployment, open `/scan`, search for a holding, select it, and upload both
 and a target-absent image. Record the response status, best score, margin, total latency, and whether the
 highlighted bounding box is correct.
 
-For video verification, repeat both cases with a 5-15 second sweep. Confirm that the returned timestamp
+For video verification, repeat both cases with a 5-30 second sweep. Confirm that the returned timestamp
 corresponds to the displayed frame, `analyzed_frame_count` is at most three, and a confident early frame
 prevents later frames from being analyzed.
