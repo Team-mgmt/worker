@@ -64,6 +64,18 @@ type DetectionMetrics = {
   mean_matched_iou: number;
   count_error: number;
 };
+type DetectionStructureMetrics = {
+  ground_truth_count: number;
+  prediction_count: number;
+  correct_ground_truth_count: number;
+  split_ground_truth_count: number;
+  merged_ground_truth_count: number;
+  missed_ground_truth_count: number;
+  merged_prediction_count: number;
+  false_positive_prediction_count: number;
+  split_rate: number;
+  merge_rate: number;
+};
 type PlacementMetrics = {
   evaluated_count: number;
   true_positive: number;
@@ -117,6 +129,7 @@ type ArtifactDetail = {
   ground_truth?: {
     annotations?: Annotation[];
     metrics?: DetectionMetrics;
+    structure_metrics?: DetectionStructureMetrics;
     placement_metrics?: PlacementMetrics | null;
     matching_metrics?: MatchingMetrics | null;
   } | null;
@@ -198,6 +211,8 @@ function EvaluationPage() {
   const [draftPoints, setDraftPoints] = useState<Point[]>([]);
   const [mode, setMode] = useState<"select" | "add">("select");
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
+  const [structureMetrics, setStructureMetrics] =
+    useState<DetectionStructureMetrics | null>(null);
   const [placementMetrics, setPlacementMetrics] =
     useState<PlacementMetrics | null>(null);
   const [matchingMetrics, setMatchingMetrics] =
@@ -264,6 +279,7 @@ function EvaluationPage() {
       setDetail(payload);
       setAnnotations(initial);
       setMetrics(payload.ground_truth?.metrics ?? null);
+      setStructureMetrics(payload.ground_truth?.structure_metrics ?? null);
       setPlacementMetrics(payload.ground_truth?.placement_metrics ?? null);
       setMatchingMetrics(payload.ground_truth?.matching_metrics ?? null);
       setSelectedId(initial[0]?.id ?? null);
@@ -293,6 +309,7 @@ function EvaluationPage() {
     setAnnotations(next);
     setSelectedId(next[0]?.id ?? null);
     setMetrics(null);
+    setStructureMetrics(null);
     setPlacementMetrics(null);
     setMatchingMetrics(null);
   };
@@ -342,10 +359,12 @@ function EvaluationPage() {
       }
       const payload = (await response.json()) as {
         metrics: DetectionMetrics;
+        structure_metrics: DetectionStructureMetrics;
         placement_metrics?: PlacementMetrics | null;
         matching_metrics?: MatchingMetrics | null;
       };
       setMetrics(payload.metrics);
+      setStructureMetrics(payload.structure_metrics);
       setPlacementMetrics(payload.placement_metrics ?? null);
       setMatchingMetrics(payload.matching_metrics ?? null);
       setMessage("ground-truth.json 저장과 평가가 완료되었습니다.");
@@ -454,6 +473,30 @@ function EvaluationPage() {
               <p className="mt-1 text-lg font-bold tabular-nums">{value}</p>
             </div>
           ))}
+        </div>
+      ) : null}
+      {structureMetrics ? (
+        <div className="mb-4 grid grid-cols-2 border bg-white md:grid-cols-4 xl:grid-cols-7">
+          {[
+            ["정상 연결", `${structureMetrics.correct_ground_truth_count}권`],
+            ["분할 검출", `${structureMetrics.split_ground_truth_count}권`],
+            ["병합 영향 GT", `${structureMetrics.merged_ground_truth_count}권`],
+            ["누락", `${structureMetrics.missed_ground_truth_count}권`],
+            ["병합 예측", `${structureMetrics.merged_prediction_count}개`],
+            ["오검출", `${structureMetrics.false_positive_prediction_count}개`],
+            [
+              "Split / Merge",
+              `${percent(structureMetrics.split_rate)} / ${percent(structureMetrics.merge_rate)}`,
+            ],
+          ].map(([label, value]) => (
+            <div key={label} className="border-b border-r px-4 py-3 xl:border-b-0">
+              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="mt-1 text-lg font-bold tabular-nums">{value}</p>
+            </div>
+          ))}
+          <div className="col-span-2 border-t px-4 py-2 text-xs text-muted-foreground md:col-span-4 xl:col-span-7">
+            GT {structureMetrics.ground_truth_count}권 · 예측 {structureMetrics.prediction_count}개 · 한 GT에 예측 여러 개면 분할, 한 예측이 여러 GT를 덮으면 병합으로 계산합니다.
+          </div>
         </div>
       ) : null}
       {placementMetrics ? (

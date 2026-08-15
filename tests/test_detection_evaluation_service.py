@@ -1,9 +1,57 @@
 from worker.services.detection_evaluation_service import (
     PredictionPolygon,
     calculate_detection_metrics,
+    calculate_detection_structure_metrics,
     calculate_placement_metrics,
     polygon_iou,
 )
+
+
+def rectangle(left: float, right: float) -> list[list[float]]:
+    return [[left, 0], [right, 0], [right, 100], [left, 100]]
+
+
+def test_structure_metrics_detect_split_spine_and_false_positive() -> None:
+    predictions = [
+        PredictionPolygon(polygon=rectangle(0, 50), confidence=0.9),
+        PredictionPolygon(polygon=rectangle(50, 100), confidence=0.8),
+        PredictionPolygon(polygon=rectangle(200, 230), confidence=0.7),
+    ]
+
+    metrics = calculate_detection_structure_metrics(predictions, [rectangle(0, 100)])
+
+    assert metrics.split_ground_truth_count == 1
+    assert metrics.correct_ground_truth_count == 0
+    assert metrics.merged_prediction_count == 0
+    assert metrics.false_positive_prediction_count == 1
+    assert metrics.split_rate == 1.0
+
+
+def test_structure_metrics_detect_merged_prediction() -> None:
+    predictions = [PredictionPolygon(polygon=rectangle(0, 200), confidence=0.9)]
+
+    metrics = calculate_detection_structure_metrics(
+        predictions,
+        [rectangle(0, 100), rectangle(100, 200)],
+    )
+
+    assert metrics.merged_prediction_count == 1
+    assert metrics.merged_ground_truth_count == 2
+    assert metrics.correct_ground_truth_count == 0
+    assert metrics.merge_rate == 1.0
+
+
+def test_structure_metrics_separate_correct_and_missed_spines() -> None:
+    predictions = [PredictionPolygon(polygon=rectangle(0, 100), confidence=0.9)]
+
+    metrics = calculate_detection_structure_metrics(
+        predictions,
+        [rectangle(0, 100), rectangle(110, 210)],
+    )
+
+    assert metrics.correct_ground_truth_count == 1
+    assert metrics.missed_ground_truth_count == 1
+    assert metrics.split_ground_truth_count == 0
 
 
 def square(left: float, top: float, right: float, bottom: float) -> list[list[float]]:

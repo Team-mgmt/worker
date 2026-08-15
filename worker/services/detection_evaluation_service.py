@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from worker.schemas.artifact_evaluation import DetectionMetrics, PlacementMetrics
+from worker.schemas.artifact_evaluation import DetectionMetrics, DetectionStructureMetrics, PlacementMetrics
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,80 @@ def polygon_iou(first: list[list[float]], second: list[list[float]]) -> float:
     intersection_area, _ = cv2.intersectConvexConvex(first_points, second_points)
     union_area = first_area + second_area - float(intersection_area)
     return max(0.0, min(1.0, float(intersection_area) / union_area)) if union_area > 0 else 0.0
+
+
+def polygon_overlap_coverages(
+    first: list[list[float]],
+    second: list[list[float]],
+) -> tuple[float, float]:
+    """Return intersection coverage for the smaller and larger polygon."""
+
+    first_points = cv2.convexHull(np.asarray(first, dtype=np.float32))
+    second_points = cv2.convexHull(np.asarray(second, dtype=np.float32))
+    first_area = abs(float(cv2.contourArea(first_points)))
+    second_area = abs(float(cv2.contourArea(second_points)))
+    if first_area <= 0 or second_area <= 0:
+        return 0.0, 0.0
+    intersection_area, _ = cv2.intersectConvexConvex(first_points, second_points)
+    smaller_area = min(first_area, second_area)
+    larger_area = max(first_area, second_area)
+    return (
+        max(0.0, min(1.0, float(intersection_area) / smaller_area)),
+        max(0.0, min(1.0, float(intersection_area) / larger_area)),
+    )
+
+
+def calculate_detection_structure_metrics(
+    predictions: list[PredictionPolygon],
+    ground_truth: list[list[list[float]]],
+    minimum_small_polygon_coverage: float = 0.5,
+    minimum_large_polygon_coverage: float = 0.1,
+) -> DetectionStructureMetrics:
+    """Classify polygon relationships as correct, split, merged, missed, or false positive."""
+
+    prediction_to_ground_truth: list[set[int]] = [set() for _ in predictions]
+    ground_truth_to_predictions: list[set[int]] = [set() for _ in ground_truth]
+    for prediction_index, prediction in enumerate(predictions):
+        for ground_truth_index, target in enumerate(ground_truth):
+            smaller_coverage, larger_coverage = polygon_overlap_coverages(prediction.polygon, target)
+            if (
+                smaller_coverage >= minimum_small_polygon_coverage
+                and larger_coverage >= minimum_large_polygon_coverage
+            ):
+                prediction_to_ground_truth[prediction_index].add(ground_truth_index)
+                ground_truth_to_predictions[ground_truth_index].add(prediction_index)
+
+    merged_prediction_indices = {
+        index for index, matches in enumerate(prediction_to_ground_truth) if len(matches) >= 2
+    }
+    correct_count = split_count = merged_ground_truth_count = missed_count = 0
+    for matches in ground_truth_to_predictions:
+        if not matches:
+            missed_count += 1
+        elif len(matches) >= 2:
+            split_count += 1
+        elif next(iter(matches)) in merged_prediction_indices:
+            merged_ground_truth_count += 1
+        else:
+            correct_count += 1
+
+    false_positive_count = sum(1 for matches in prediction_to_ground_truth if not matches)
+    ground_truth_count = len(ground_truth)
+    prediction_count = len(predictions)
+    return DetectionStructureMetrics(
+        ground_truth_count=ground_truth_count,
+        prediction_count=prediction_count,
+        correct_ground_truth_count=correct_count,
+        split_ground_truth_count=split_count,
+        merged_ground_truth_count=merged_ground_truth_count,
+        missed_ground_truth_count=missed_count,
+        merged_prediction_count=len(merged_prediction_indices),
+        false_positive_prediction_count=false_positive_count,
+        split_rate=round(split_count / ground_truth_count, 6) if ground_truth_count else 0.0,
+        merge_rate=round(len(merged_prediction_indices) / prediction_count, 6) if prediction_count else 0.0,
+        minimum_small_polygon_coverage=minimum_small_polygon_coverage,
+        minimum_large_polygon_coverage=minimum_large_polygon_coverage,
+    )
 
 
 def predictions_from_result(result: dict) -> list[PredictionPolygon]:

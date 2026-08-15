@@ -43,6 +43,21 @@ class DetectionMetrics(BaseModel):
     count_error: int
 
 
+class DetectionStructureMetrics(BaseModel):
+    ground_truth_count: int
+    prediction_count: int
+    correct_ground_truth_count: int
+    split_ground_truth_count: int
+    merged_ground_truth_count: int
+    missed_ground_truth_count: int
+    merged_prediction_count: int
+    false_positive_prediction_count: int
+    split_rate: float
+    merge_rate: float
+    minimum_small_polygon_coverage: float
+    minimum_large_polygon_coverage: float
+
+
 class PlacementMetrics(BaseModel):
     evaluated_count: int
     true_positive: int
@@ -103,6 +118,7 @@ class ArtifactRunDetail(BaseModel):
 class GroundTruthSaveResponse(BaseModel):
     key: str
     metrics: DetectionMetrics
+    structure_metrics: DetectionStructureMetrics
     placement_metrics: PlacementMetrics | None = None
     matching_metrics: MatchingMetrics | None = None
     ground_truth: dict

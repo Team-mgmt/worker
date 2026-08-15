@@ -14,7 +14,12 @@ from worker.schemas.artifact_evaluation import (
     GroundTruthSaveRequest,
     GroundTruthSaveResponse,
 )
-from worker.services.detection_evaluation_service import calculate_detection_metrics, calculate_placement_metrics, predictions_from_result
+from worker.services.detection_evaluation_service import (
+    calculate_detection_metrics,
+    calculate_detection_structure_metrics,
+    calculate_placement_metrics,
+    predictions_from_result,
+)
 from worker.services.matching_evaluation_service import calculate_matching_metrics
 from worker.services.scan_artifact_service import scan_artifact_service
 
@@ -103,6 +108,10 @@ async def save_ground_truth(
 
     predictions = predictions_from_result(result)
     metrics = calculate_detection_metrics(predictions, [annotation["polygon"] for annotation in annotations])
+    structure_metrics = calculate_detection_structure_metrics(
+        predictions,
+        [annotation["polygon"] for annotation in annotations],
+    )
     placement_metrics = calculate_placement_metrics(predictions, annotations)
     matching_metrics = calculate_matching_metrics(result, annotations)
     yolo_obb_lines = [
@@ -126,6 +135,7 @@ async def save_ground_truth(
         "model": result.get("model"),
         "annotations": annotations,
         "metrics": metrics.model_dump(mode="json"),
+        "structure_metrics": structure_metrics.model_dump(mode="json"),
         "placement_metrics": placement_metrics.model_dump(mode="json") if placement_metrics else None,
         "matching_metrics": matching_metrics.model_dump(mode="json") if matching_metrics else None,
         "training_export": {
@@ -139,6 +149,7 @@ async def save_ground_truth(
     return GroundTruthSaveResponse(
         key=key,
         metrics=metrics,
+        structure_metrics=structure_metrics,
         placement_metrics=placement_metrics,
         matching_metrics=matching_metrics,
         ground_truth=payload,

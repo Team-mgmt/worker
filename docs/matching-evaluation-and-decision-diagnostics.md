@@ -51,6 +51,22 @@ GT 편집기는 예측된 소장 ID를 초기값으로 보여준다. 예측이 �
 4. `top_candidates`의 holding/book ID 또는 제목·청구기호를 GT와 비교한다.
 5. 자동 확정된 결과 중 Top-1이 틀린 비율을 오확정률로 계산한다.
 
+### 책등 split/merge 평가
+
+일반 IoU 0.5 검출 지표와 별도로 polygon 다대일·일대다 관계를 계산한다.
+작은 polygon 면적의 50% 이상과 큰 polygon 면적의 10% 이상이 동시에 겹치면
+두 polygon에 구조적 연관이 있다고 본다.
+
+- GT 한 권에 예측 여러 개가 연결되면 `split`
+- 예측 하나에 GT 여러 권이 연결되면 `merge`
+- 연결이 없는 GT는 `missed`
+- 연결이 없는 예측은 `false positive`
+- 정확히 1:1이고 해당 예측이 다른 GT를 덮지 않으면 `correct`
+
+큰 polygon의 최소 10% 조건은 책등 안의 아주 작은 잡음 검출이 split으로
+집계되는 것을 막는다. 현재 50%/10%는 초기 평가 기준이며, GT 결과를 확인하기
+전에는 YOLO 후처리의 자동 병합 기준으로 사용하지 않는다.
+
 산출 지표:
 
 - 제목 normalized accuracy
@@ -61,6 +77,8 @@ GT 편집기는 예측된 소장 ID를 초기값으로 보여준다. 예측이 �
 - DB Top-1 accuracy
 - DB Top-3 accuracy
 - 자동 확정 수, 오확정 수, false confirmation rate
+- correct/split/merge/missed/false-positive count
+- split rate와 merge rate
 
 분모가 0인 지표는 0으로 반환하고, 화면에 평가 건수를 함께 표시한다. 서로 다른
 도서관의 결과를 합치지 말고 노원중앙 `111058`과 도봉아이나라 `111189`를
