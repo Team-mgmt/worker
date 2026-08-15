@@ -2,18 +2,24 @@ from __future__ import annotations
 
 import re
 
-
 CALL_NUMBER_PATTERN = re.compile(
     r"(?<!\d)"
     r"(?P<class_no>\d{3}(?:[.,:]\d+)?)"
     r"(?!\d)"
     r"(?:\s+\d{1,2})?"
     r"\s+"
-    r"(?P<book_code>[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z]+\d+[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9.-]*)"
+    r"(?P<book_code>"
+    r"(?:[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z]+\d+[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9.-]*)"
+    r"|(?:\d+[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z][가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9.-]*)"
+    r")"
     r"(?:\s+(?P<copy_code>[cCvV]\.?(?:\s*)\d+))?"
 )
 AUTHOR_ROLE_PATTERN = re.compile(
     r"(?P<author>[가-힣]{2,4})\s*(?:지음|글|저|장편\s*소설|소설집|연작\s*소설)"
+)
+SPACED_AUTHOR_ROLE_PATTERN = re.compile(
+    r"(?<![가-힣])(?P<author>[가-힣](?:\s+[가-힣]){1,3})\s*"
+    r"(?:지음|글|저|장편\s*소설|소설집|연작\s*소설)"
 )
 SHELF_LABEL_PATTERN = re.compile(r"\b(?:노원정보|노원중앙|문학|어학)\b")
 
@@ -38,9 +44,11 @@ def extract_ocr_fields(raw_text: str) -> tuple[str | None, str | None, str | Non
     author = None
     title = bibliographic_text or None
     author_matches = list(AUTHOR_ROLE_PATTERN.finditer(bibliographic_text))
+    if not author_matches:
+        author_matches = list(SPACED_AUTHOR_ROLE_PATTERN.finditer(bibliographic_text))
     if author_matches:
         author_match = author_matches[-1]
-        author = author_match.group("author")
+        author = author_match.group("author").replace(" ", "")
         title_prefix = bibliographic_text[: author_match.start()].strip(" -|,:")
         if title_prefix:
             title = title_prefix

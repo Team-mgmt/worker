@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from worker.core.config import settings
 from worker.schemas.inference import OCRResultItem, TargetBook
+from worker.services.ocr_field_parser import extract_ocr_fields
 
 
 class RemoteVisionError(RuntimeError):
@@ -95,7 +96,20 @@ class RemoteVisionService:
         except Exception as exc:
             raise RemoteVisionError(f"Modal vision request failed after {time.perf_counter() - started_at:.1f}s: {exc}") from exc
 
-        items = [OCRResultItem.model_validate(item.model_dump()) for item in response.items]
+        items: list[OCRResultItem] = []
+        for remote_item in response.items:
+            item = OCRResultItem.model_validate(remote_item.model_dump())
+            if not item.call_number and item.raw_text:
+                recovered_title, recovered_author, recovered_call_number = extract_ocr_fields(item.raw_text)
+                if recovered_call_number:
+                    item = item.model_copy(
+                        update={
+                            "title": recovered_title or item.title,
+                            "author": item.author or recovered_author,
+                            "call_number": recovered_call_number,
+                        }
+                    )
+            items.append(item)
         return (
             items,
             response.detection_seconds,
