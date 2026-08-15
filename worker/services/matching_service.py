@@ -240,6 +240,23 @@ async def find_matches_for_ocr_from_prisma_catalog(
     ocr_item: OCRResultItem,
 ) -> List[MatchCandidate]:
     """Match OCR text against the Prisma PostgreSQL catalog tables used by shelfalign-web."""
+    rows = await query_catalog_candidate_rows(session, library_code, ocr_item)
+    ocr_class_no, ocr_book_code = split_call_number(ocr_item.call_number or "")
+    return score_catalog_rows(rows, ocr_item, ocr_class_no, ocr_book_code)
+
+
+async def query_catalog_candidate_rows(
+    session: AsyncSession,
+    library_code: str,
+    ocr_item: OCRResultItem,
+    *,
+    use_exact_shortcut: bool = True,
+) -> list[Mapping[str, Any]]:
+    """Return the catalog candidate pool before reranking.
+
+    Ablation evaluation disables the exact-call-number shortcut so every
+    scoring strategy receives the same broader candidate set.
+    """
     ocr_class_no, ocr_book_code = split_call_number(ocr_item.call_number or "")
     prefix = ocr_class_no[:2] if len(ocr_class_no) >= 2 else ocr_class_no[:1]
 
@@ -257,7 +274,7 @@ async def find_matches_for_ocr_from_prisma_catalog(
     """
 
     normalized_call_number = normalize_catalog_text(ocr_item.call_number)
-    if normalized_call_number:
+    if normalized_call_number and use_exact_shortcut:
         exact_stmt = text(
             f"""
             SELECT {select_columns}
@@ -282,7 +299,7 @@ async def find_matches_for_ocr_from_prisma_catalog(
             exact_rows = []
 
         if exact_rows:
-            return score_catalog_rows(exact_rows, ocr_item, ocr_class_no, ocr_book_code)
+            return list(exact_rows)
 
     where_parts = ['h."libraryCode" = :library_code']
     params: dict[str, str] = {"library_code": library_code}
@@ -316,7 +333,8 @@ async def find_matches_for_ocr_from_prisma_catalog(
         await session.rollback()
         return []
 
-    return score_catalog_rows(result.mappings(), ocr_item, ocr_class_no, ocr_book_code)
+    mapped_rows = result.mappings()
+    return list(mapped_rows.all() if hasattr(mapped_rows, "all") else mapped_rows)
 
 
 def score_catalog_rows(
