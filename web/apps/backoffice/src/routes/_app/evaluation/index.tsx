@@ -349,6 +349,30 @@ function EvaluationPage() {
     detectionMatches.find(
       (match) => match.ground_truth_id && match.ground_truth_id === selectedId,
     ) ?? null;
+  const selectedComparisonViewBox = useMemo(() => {
+    if (!detail || !selected) return null;
+    const points = [
+      ...selected.polygon,
+      ...(selectedDetectionMatch?.prediction_polygon ?? []),
+    ];
+    if (!points.length) return null;
+    const xs = points.map(([x]) => x);
+    const ys = points.map(([, y]) => y);
+    const left = Math.max(0, Math.min(...xs));
+    const top = Math.max(0, Math.min(...ys));
+    const right = Math.min(detail.image_width, Math.max(...xs));
+    const bottom = Math.min(detail.image_height, Math.max(...ys));
+    const paddingX = Math.max(20, (right - left) * 0.35);
+    const paddingY = Math.max(20, (bottom - top) * 0.05);
+    const x = Math.max(0, left - paddingX);
+    const y = Math.max(0, top - paddingY);
+    const width = Math.min(detail.image_width - x, right - left + paddingX * 2);
+    const height = Math.min(
+      detail.image_height - y,
+      bottom - top + paddingY * 2,
+    );
+    return `${x} ${y} ${width} ${height}`;
+  }, [detail, selected, selectedDetectionMatch]);
 
   const updateAnnotation = (id: string, update: Partial<Annotation>) => {
     setAnnotations((current) =>
@@ -726,27 +750,32 @@ function EvaluationPage() {
                     height={detail.image_height}
                   />
                   {showIouOverlay
-                    ? detectionMatches.map((match, index) => {
-                        if (!match.prediction_polygon) return null;
-                        const isFalsePositive =
-                          match.status === "false_positive";
-                        return (
-                          <Line
-                            key={`prediction-${match.prediction_index ?? index}`}
-                            points={match.prediction_polygon.flat()}
-                            closed
-                            stroke={isFalsePositive ? "#ef4444" : "#38bdf8"}
-                            strokeWidth={3 / scale}
-                            dash={[10 / scale, 7 / scale]}
-                            fill={
-                              isFalsePositive
-                                ? "rgba(239,68,68,0.10)"
-                                : "rgba(56,189,248,0.06)"
-                            }
-                            listening={false}
-                          />
-                        );
-                      })
+                    ? detectionMatches
+                        .filter(
+                          (match) =>
+                            !selectedId || match.ground_truth_id === selectedId,
+                        )
+                        .map((match, index) => {
+                          if (!match.prediction_polygon) return null;
+                          const isFalsePositive =
+                            match.status === "false_positive";
+                          return (
+                            <Line
+                              key={`prediction-${match.prediction_index ?? index}`}
+                              points={match.prediction_polygon.flat()}
+                              closed
+                              stroke={isFalsePositive ? "#ef4444" : "#38bdf8"}
+                              strokeWidth={3 / scale}
+                              dash={[10 / scale, 7 / scale]}
+                              fill={
+                                isFalsePositive
+                                  ? "rgba(239,68,68,0.10)"
+                                  : "rgba(56,189,248,0.06)"
+                              }
+                              listening={false}
+                            />
+                          );
+                        })
                     : null}
                   {annotations.map((annotation) => {
                     const active = annotation.id === selectedId;
@@ -860,6 +889,43 @@ function EvaluationPage() {
               {detectionMatches.length ? (
                 <div className="border bg-slate-50 p-3 text-sm">
                   <p className="font-semibold">개별 검출 비교</p>
+                  {detail && selectedComparisonViewBox ? (
+                    <svg
+                      className="mt-2 h-72 w-full bg-zinc-900"
+                      viewBox={selectedComparisonViewBox}
+                      preserveAspectRatio="xMidYMid meet"
+                      aria-label="선택한 책등의 GT와 예측 비교"
+                    >
+                      <image
+                        href={workerUrl(detail.original_url)}
+                        x="0"
+                        y="0"
+                        width={detail.image_width}
+                        height={detail.image_height}
+                      />
+                      {selectedDetectionMatch?.prediction_polygon ? (
+                        <polygon
+                          points={selectedDetectionMatch.prediction_polygon
+                            .map(([x, y]) => `${x},${y}`)
+                            .join(" ")}
+                          fill="rgba(56,189,248,0.12)"
+                          stroke="#38bdf8"
+                          strokeWidth="4"
+                          strokeDasharray="12 8"
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      ) : null}
+                      <polygon
+                        points={selected.polygon
+                          .map(([x, y]) => `${x},${y}`)
+                          .join(" ")}
+                        fill="rgba(34,197,94,0.10)"
+                        stroke="#22c55e"
+                        strokeWidth="4"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    </svg>
+                  ) : null}
                   {selectedDetectionMatch?.status === "matched" ? (
                     <p className="mt-1">
                       IoU {percent(selectedDetectionMatch.iou)} · 예측 신뢰도{" "}
@@ -869,8 +935,8 @@ function EvaluationPage() {
                     <p className="mt-1 text-red-600">대응 예측 없음(FN)</p>
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">
-                    초록 실선은 GT, 파란 점선은 연결된 예측, 빨간 점선은
-                    중복·오검출(FP)입니다.
+                    초록 실선은 GT, 파란 점선은 연결된 예측입니다. 두 선의
+                    어긋난 면적이 클수록 IoU가 낮아집니다.
                   </p>
                 </div>
               ) : null}
