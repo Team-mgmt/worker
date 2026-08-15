@@ -97,6 +97,8 @@ def test_detection_matches_expose_per_spine_iou_and_false_positives() -> None:
     assert matches[0].ground_truth_id == "spine-1"
     assert matches[0].iou == 1.0
     assert matches[1].status == "false_positive"
+    assert matches[1].ground_truth_id == "spine-1"
+    assert matches[1].iou == 0.5
 
 
 def test_placement_metrics_compare_decisions_after_polygon_matching() -> None:

@@ -233,11 +233,30 @@ def calculate_detection_matches(
                 )
             )
         else:
+            # Preserve the nearest GT relationship for visualization even when
+            # this prediction lost the one-to-one assignment (for example, a
+            # duplicate/split prediction). It remains a false positive.
+            nearest_index = -1
+            nearest_iou = 0.0
+            for ground_truth_index, annotation in enumerate(annotations):
+                iou = polygon_iou(prediction.polygon, annotation["polygon"])
+                if iou > nearest_iou:
+                    nearest_index = ground_truth_index
+                    nearest_iou = iou
+            nearest_annotation = annotations[nearest_index] if nearest_index >= 0 else None
             matches.append(
                 DetectionMatch(
                     status="false_positive",
+                    ground_truth_index=nearest_index if nearest_index >= 0 else None,
+                    ground_truth_id=(
+                        str(nearest_annotation.get("id") or "") if nearest_annotation else None
+                    ),
                     prediction_index=prediction_index,
+                    iou=round(nearest_iou, 6),
                     confidence=prediction.confidence,
+                    ground_truth_polygon=(
+                        nearest_annotation["polygon"] if nearest_annotation else None
+                    ),
                     prediction_polygon=prediction.polygon,
                 )
             )

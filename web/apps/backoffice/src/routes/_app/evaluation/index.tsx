@@ -345,15 +345,27 @@ function EvaluationPage() {
   const canvasHeight = detail ? detail.image_height * scale : 520;
   const selected =
     annotations.find((annotation) => annotation.id === selectedId) ?? null;
+  const selectedDetectionMatches = useMemo(
+    () =>
+      detectionMatches.filter(
+        (match) =>
+          match.ground_truth_id && match.ground_truth_id === selectedId,
+      ),
+    [detectionMatches, selectedId],
+  );
   const selectedDetectionMatch =
-    detectionMatches.find(
-      (match) => match.ground_truth_id && match.ground_truth_id === selectedId,
-    ) ?? null;
+    selectedDetectionMatches.find((match) => match.status === "matched") ??
+    null;
+  const selectedFalsePositives = selectedDetectionMatches.filter(
+    (match) => match.status === "false_positive",
+  );
   const selectedComparisonViewBox = useMemo(() => {
     if (!detail || !selected) return null;
     const points = [
       ...selected.polygon,
-      ...(selectedDetectionMatch?.prediction_polygon ?? []),
+      ...selectedDetectionMatches.flatMap(
+        (match) => match.prediction_polygon ?? [],
+      ),
     ];
     if (!points.length) return null;
     const xs = points.map(([x]) => x);
@@ -372,7 +384,7 @@ function EvaluationPage() {
       bottom - top + paddingY * 2,
     );
     return `${x} ${y} ${width} ${height}`;
-  }, [detail, selected, selectedDetectionMatch]);
+  }, [detail, selected, selectedDetectionMatches]);
 
   const updateAnnotation = (id: string, update: Partial<Annotation>) => {
     setAnnotations((current) =>
@@ -903,18 +915,29 @@ function EvaluationPage() {
                         width={detail.image_width}
                         height={detail.image_height}
                       />
-                      {selectedDetectionMatch?.prediction_polygon ? (
-                        <polygon
-                          points={selectedDetectionMatch.prediction_polygon
-                            .map(([x, y]) => `${x},${y}`)
-                            .join(" ")}
-                          fill="rgba(56,189,248,0.12)"
-                          stroke="#38bdf8"
-                          strokeWidth="4"
-                          strokeDasharray="12 8"
-                          vectorEffect="non-scaling-stroke"
-                        />
-                      ) : null}
+                      {selectedDetectionMatches.map((match, index) =>
+                        match.prediction_polygon ? (
+                          <polygon
+                            key={`preview-${match.prediction_index ?? index}`}
+                            points={match.prediction_polygon
+                              .map(([x, y]) => `${x},${y}`)
+                              .join(" ")}
+                            fill={
+                              match.status === "false_positive"
+                                ? "rgba(239,68,68,0.15)"
+                                : "rgba(56,189,248,0.12)"
+                            }
+                            stroke={
+                              match.status === "false_positive"
+                                ? "#ef4444"
+                                : "#38bdf8"
+                            }
+                            strokeWidth="4"
+                            strokeDasharray="12 8"
+                            vectorEffect="non-scaling-stroke"
+                          />
+                        ) : null,
+                      )}
                       <polygon
                         points={selected.polygon
                           .map(([x, y]) => `${x},${y}`)
@@ -927,16 +950,24 @@ function EvaluationPage() {
                     </svg>
                   ) : null}
                   {selectedDetectionMatch?.status === "matched" ? (
-                    <p className="mt-1">
-                      IoU {percent(selectedDetectionMatch.iou)} · 예측 신뢰도{" "}
-                      {percent(selectedDetectionMatch.confidence)}
-                    </p>
+                    <>
+                      <p className="mt-1">
+                        IoU {percent(selectedDetectionMatch.iou)} · 예측 신뢰도{" "}
+                        {percent(selectedDetectionMatch.confidence)}
+                      </p>
+                      {selectedFalsePositives.length ? (
+                        <p className="mt-1 font-semibold text-red-600">
+                          이 책과 겹치는 중복·오검출{" "}
+                          {selectedFalsePositives.length}개
+                        </p>
+                      ) : null}
+                    </>
                   ) : (
                     <p className="mt-1 text-red-600">대응 예측 없음(FN)</p>
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">
-                    초록 실선은 GT, 파란 점선은 연결된 예측입니다. 두 선의
-                    어긋난 면적이 클수록 IoU가 낮아집니다.
+                    초록 실선은 GT, 파란 점선은 연결된 예측, 빨간 점선은 이 책과
+                    겹치는 중복·오검출입니다.
                   </p>
                 </div>
               ) : null}
