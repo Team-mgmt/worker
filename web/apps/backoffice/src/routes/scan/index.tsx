@@ -110,6 +110,7 @@ function PatronBookFinder() {
   const trackerRef = useRef<OpticalFlowBoxTracker | null>(null);
   const trackerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const trackerAnimationRef = useRef<number | null>(null);
+  const trackedBoxElementRef = useRef<HTMLDivElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -191,14 +192,24 @@ function PatronBookFinder() {
         );
         return;
       }
-      setTrackedBox(nextBox);
+      const boxElement = trackedBoxElementRef.current;
+      if (boxElement) {
+        boxElement.style.left = `${(nextBox.x / canvas.width) * 100}%`;
+        boxElement.style.top = `${(nextBox.y / canvas.height) * 100}%`;
+        boxElement.style.width = `${(nextBox.width / canvas.width) * 100}%`;
+        boxElement.style.height = `${(nextBox.height / canvas.height) * 100}%`;
+      }
       trackerAnimationRef.current = requestAnimationFrame(trackFrame);
     };
     trackerAnimationRef.current = requestAnimationFrame(trackFrame);
     return true;
   };
 
-  const targetBody = (file: File, saveArtifacts = true) => {
+  const targetBody = (
+    file: File,
+    saveArtifacts = true,
+    allowLocalFallback = true,
+  ) => {
     if (!target?.book) return null;
     const body = new FormData();
     body.set("file", file);
@@ -209,6 +220,7 @@ function PatronBookFinder() {
     if (target.callNumber) body.set("target_call_number", target.callNumber);
     if (target.book.isbn13) body.set("target_isbn13", target.book.isbn13);
     body.set("save_artifacts", saveArtifacts ? "true" : "false");
+    body.set("allow_local_fallback", allowLocalFallback ? "true" : "false");
     return body;
   };
 
@@ -287,21 +299,42 @@ function PatronBookFinder() {
     setLiveStatus("카메라 권한을 확인하고 있습니다.");
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { exact: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30, max: 30 },
+          },
+        });
+      } catch (cameraError) {
+        if (
+          cameraError instanceof DOMException &&
+          cameraError.name !== "OverconstrainedError" &&
+          cameraError.name !== "NotFoundError"
+        ) {
+          throw cameraError;
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30, max: 30 },
+          },
+        });
+      }
       if (liveSessionRef.current !== sessionId) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
       liveStreamRef.current = stream;
       setLiveActive(true);
-      setLiveStatus("서가를 천천히 비춰주세요. 프레임 0/8 분석 대기 중");
+      setLiveStatus("후면 카메라가 연결되었습니다. 분석 0/4 대기 중");
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => resolve()),
       );
@@ -309,9 +342,6 @@ function PatronBookFinder() {
       if (!video) throw new Error("카메라 화면을 초기화하지 못했습니다.");
       video.srcObject = stream;
       await video.play();
-      void import("@/lib/optical-flow-box-tracker").then(({ loadOpenCv }) =>
-        loadOpenCv(),
-      );
 
       let bestPossible:
         | {
@@ -330,7 +360,7 @@ function PatronBookFinder() {
           }
         | undefined;
 
-      for (let frameNumber = 1; frameNumber <= 8; frameNumber += 1) {
+      for (let frameNumber = 1; frameNumber <= 4; frameNumber += 1) {
         if (liveSessionRef.current !== sessionId) return;
         if (!video.videoWidth || !video.videoHeight) {
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -340,9 +370,9 @@ function PatronBookFinder() {
 
         setLiveResult(null);
         setLiveStatus(
-          `프레임 ${frameNumber}/8 분석 중 · 카메라를 잠시 고정해주세요`,
+          `프레임 ${frameNumber}/4 분석 중 · 카메라를 잠시 고정해주세요`,
         );
-        const scale = Math.min(1, 1600 / video.videoWidth);
+        const scale = Math.min(1, 1280 / video.videoWidth);
         const width = Math.round(video.videoWidth * scale);
         const height = Math.round(video.videoHeight * scale);
         const canvas = document.createElement("canvas");
@@ -351,14 +381,13 @@ function PatronBookFinder() {
         setLiveFrameSize({ width, height });
         canvas.getContext("2d")?.drawImage(video, 0, 0, width, height);
         const blob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob(resolve, "image/jpeg", 0.88),
+          canvas.toBlob(resolve, "image/jpeg", 0.8),
         );
         if (!blob) throw new Error("카메라 프레임을 생성하지 못했습니다.");
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
         const frameFile = new File([blob], `live-frame-${frameNumber}.jpg`, {
           type: "image/jpeg",
         });
-        const body = targetBody(frameFile, false);
+        const body = targetBody(frameFile, false, false);
         if (!body) return;
         const response = await fetch(workerUrl("inference/find_target_book"), {
           method: "POST",
@@ -372,6 +401,7 @@ function PatronBookFinder() {
         if (liveSessionRef.current !== sessionId) return;
 
         const frameResult = payload as TargetResult;
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
         lastAttempt = { result: frameResult, dataUrl, width, height };
         setLiveResult(frameResult);
         const trackingBbox = frameResult.best_detection?.bbox;
@@ -404,10 +434,10 @@ function PatronBookFinder() {
         }
         setLiveStatus(
           frameResult.status === "possible"
-            ? `프레임 ${frameNumber}/8 · 유사 후보 발견, 계속 확인 중`
-            : `프레임 ${frameNumber}/8 · 아직 목표 도서를 찾지 못했습니다`,
+            ? `프레임 ${frameNumber}/4 · 유사 후보 발견, 계속 확인 중`
+            : `프레임 ${frameNumber}/4 · 아직 목표 도서를 찾지 못했습니다`,
         );
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
       const finalAttempt = bestPossible ?? lastAttempt;
@@ -664,7 +694,8 @@ function PatronBookFinder() {
             <div className="pointer-events-none absolute inset-3 border-2 border-dashed border-white/50" />
             {trackedBox ? (
               <div
-                className="pointer-events-none absolute border-4 border-green-400 bg-green-400/10 transition-[left,top,width,height] duration-75 linear"
+                ref={trackedBoxElementRef}
+                className="pointer-events-none absolute border-4 border-green-400 bg-green-400/10"
                 style={{
                   left: `${(trackedBox.x / liveFrameSize.width) * 100}%`,
                   top: `${(trackedBox.y / liveFrameSize.height) * 100}%`,

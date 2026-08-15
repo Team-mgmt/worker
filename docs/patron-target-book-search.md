@@ -29,13 +29,17 @@ videos available for later GT review without adding S3 upload time to the HTTP r
 
 - the rear camera remains open while the client captures one JPEG at a time;
 - requests are sequential, so a slow inference cannot build an unbounded frame queue;
-- at most eight frames are analyzed in one live session;
+- at most four 1280-pixel frames are analyzed in one live session, with a one-second pause between attempts;
+- live requests never fall back to local CPU vision when the remote GPU fails; a failure is returned instead of
+  exhausting the small EC2 instance;
+- temporary live-frame uploads are removed after inference;
 - the latest server candidates are overlaid in amber while scanning;
 - once a target box is available, OpenCV.js Lucas-Kanade optical flow tracks its visual features locally;
 - the green tracking box is updated through `requestAnimationFrame`, up to the display's 30 FPS target;
+- per-frame box movement updates the overlay DOM directly instead of rerendering the full React page;
 - if too few feature points survive, the client removes the stale box and returns to server detection;
 - when tracking cannot initialize, `found` falls back to freezing the exact submitted frame;
-- sampled live frames set `save_artifacts=false` to avoid creating up to eight duplicate S3 runs.
+- sampled live frames set `save_artifacts=false` to avoid creating up to four duplicate S3 runs.
 
 Target identification is still sampled server-side, while box motion between those detections is local optical-flow
 tracking. Actual FPS depends on the phone CPU, camera resolution, and browser; 30 FPS is a target rather than a

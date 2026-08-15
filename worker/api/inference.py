@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import time
 from datetime import UTC, datetime
 from io import BytesIO
@@ -54,12 +55,16 @@ def analyze_log(message: str) -> None:
 async def save_target_search_artifacts(**kwargs) -> None:
     """Upload user-mode diagnostics after the HTTP response is ready."""
 
+    cleanup_dir = kwargs.pop("cleanup_dir", None)
     try:
         artifact_prefix = await scan_artifact_service.save_target_search(**kwargs)
         if artifact_prefix:
             analyze_log(f"[find_target_book] artifacts saved prefix={artifact_prefix}")
     except Exception as exc:
         analyze_log(f"[find_target_book] artifact save failed; continuing without S3: {exc}")
+    finally:
+        if cleanup_dir is not None:
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
 
 
 async def save_target_video_search_artifacts(**kwargs) -> None:
@@ -538,6 +543,7 @@ async def find_target_book_in_image(
     target_call_number: str | None = Form(default=None),
     target_isbn13: str | None = Form(default=None),
     save_artifacts: bool = Form(default=True),
+    allow_local_fallback: bool = Form(default=True),
 ):
     """Find one user-selected catalog holding in an uploaded shelf image."""
 
@@ -601,7 +607,8 @@ async def find_target_book_in_image(
                 )
         except Exception as exc:
             analyze_log(f"[find_target_book] remote vision failed provider={settings.REMOTE_VISION_PROVIDER}: {exc}")
-            if not settings.REMOTE_VISION_FALLBACK_LOCAL:
+            if not settings.REMOTE_VISION_FALLBACK_LOCAL or not allow_local_fallback:
+                shutil.rmtree(upload_dir, ignore_errors=True)
                 detail = str(exc) if isinstance(exc, RemoteVisionError) else "Remote vision inference failed."
                 raise HTTPException(status_code=503, detail=detail) from exc
             analyze_log("[find_target_book] falling back to local vision")
@@ -640,7 +647,10 @@ async def find_target_book_in_image(
                     model_sha256=_remote_model_sha256,
                     vision_provider=settings.REMOTE_VISION_PROVIDER,
                     created_at=artifact_created_at,
+                    cleanup_dir=upload_dir,
                 )
+            else:
+                shutil.rmtree(upload_dir, ignore_errors=True)
             return response
 
     detection_started_at = time.perf_counter()
@@ -763,7 +773,10 @@ async def find_target_book_in_image(
             },
             model_path=detector_service.model_path if detector_service.is_ready else None,
             created_at=artifact_created_at,
+            cleanup_dir=upload_dir,
         )
+    else:
+        shutil.rmtree(upload_dir, ignore_errors=True)
     return response
 
 
