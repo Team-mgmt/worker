@@ -408,6 +408,31 @@ function EvaluationPage() {
         diagnostic.prediction_index ===
         selectedDetectionMatch?.prediction_index,
     ) ?? null;
+  const dbMatchingFailures = useMemo(
+    () =>
+      annotations.flatMap((annotation, annotationIndex) => {
+        if (!annotation.book_id && !annotation.holding_id) return [];
+        const detectionMatch = detectionMatches.find(
+          (match) =>
+            match.status === "matched" &&
+            match.ground_truth_id === annotation.id,
+        );
+        const diagnostic = detail?.matching_diagnostics?.find(
+          (item) => item.prediction_index === detectionMatch?.prediction_index,
+        );
+        const candidates = diagnostic?.top_candidates ?? [];
+        const truthInTop3 = candidates
+          .slice(0, 3)
+          .some((candidate) =>
+            annotation.holding_id
+              ? candidate.holding_id === annotation.holding_id
+              : candidate.book_id === annotation.book_id,
+          );
+        if (truthInTop3) return [];
+        return [{ annotation, annotationIndex, diagnostic, candidates }];
+      }),
+    [annotations, detectionMatches, detail?.matching_diagnostics],
+  );
   const selectedComparisonViewBox = useMemo(() => {
     if (!detail || !selected) return null;
     const points = [
@@ -744,6 +769,43 @@ function EvaluationPage() {
             {matchingMetrics.db_evaluated_count}권 · 자동 확정{" "}
             {matchingMetrics.confirmed_count}권 중 오확정{" "}
             {matchingMetrics.wrong_confirmation_count}권
+          </div>
+        </div>
+      ) : null}
+      {matchingMetrics && dbMatchingFailures.length ? (
+        <div className="mb-4 border border-red-300 bg-red-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="font-bold text-red-800">
+                DB Top-3 매칭 실패 {dbMatchingFailures.length}권
+              </p>
+              <p className="mt-1 text-xs text-red-700">
+                책을 누르면 해당 책등과 OCR·정규화·후보 순위를 확인할 수
+                있습니다.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {dbMatchingFailures.map(
+              ({ annotation, annotationIndex, diagnostic, candidates }) => (
+                <Button
+                  key={annotation.id}
+                  type="button"
+                  variant="outline"
+                  className="h-auto border-red-300 bg-white py-2 text-left"
+                  onClick={() => selectAnnotation(annotation.id)}
+                >
+                  <span>
+                    {annotationIndex + 1}번 ·{" "}
+                    {annotation.title || "제목 미입력"}
+                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                      OCR {diagnostic?.parsed_title || "인식 실패"} · 1위{" "}
+                      {candidates[0]?.title || "후보 없음"}
+                    </span>
+                  </span>
+                </Button>
+              ),
+            )}
           </div>
         </div>
       ) : null}
