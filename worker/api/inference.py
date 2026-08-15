@@ -14,7 +14,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from worker.core.config import settings
 from worker.core.database import get_db
-from worker.schemas.inference import MatchResponse, OCRResultItem, ScanSessionRequest, TargetBook, TargetBookSearchResponse, VideoAnalysisResponse, VideoFrameQuality
+from worker.schemas.inference import (
+    MatchResponse,
+    OCRResultItem,
+    ScanSessionRequest,
+    TargetBook,
+    TargetBookSearchResponse,
+    TargetBookVideoSearchResponse,
+    TargetVideoFrameResult,
+    VideoAnalysisResponse,
+    VideoFrameQuality,
+)
 from worker.services.detection_service import SpineDetection, detector_service
 from worker.services.inference_service import process_scan_session_request
 from worker.services.ocr_field_parser import extract_ocr_fields
@@ -50,6 +60,19 @@ async def save_target_search_artifacts(**kwargs) -> None:
             analyze_log(f"[find_target_book] artifacts saved prefix={artifact_prefix}")
     except Exception as exc:
         analyze_log(f"[find_target_book] artifact save failed; continuing without S3: {exc}")
+
+
+async def save_target_video_search_artifacts(**kwargs) -> None:
+    """Upload user-mode video diagnostics after the HTTP response is ready."""
+
+    try:
+        artifact_prefix = await scan_artifact_service.save_target_video_search(**kwargs)
+        if artifact_prefix:
+            analyze_log(f"[find_target_book_video] artifacts saved prefix={artifact_prefix}")
+    except Exception as exc:
+        analyze_log(
+            f"[find_target_book_video] artifact save failed; continuing without S3: {exc}"
+        )
 
 
 @router.post("/scan", response_model=MatchResponse)
@@ -741,6 +764,178 @@ async def find_target_book_in_image(
             created_at=artifact_created_at,
         )
     return response
+
+
+def _target_search_rank(response: TargetBookSearchResponse) -> tuple[int, float, float]:
+    status_rank = {"not_found": 0, "possible": 1, "found": 2}.get(response.status, 0)
+    best_score = response.best_detection.score if response.best_detection else 0.0
+    return status_rank, best_score, response.score_margin or 0.0
+
+
+@router.post("/find_target_book_video", response_model=TargetBookVideoSearchResponse)
+async def find_target_book_in_video(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    holding_id: str = Form(...),
+    library_code: str = Form(default="unknown"),
+    target_title: str = Form(...),
+    target_author: str | None = Form(default=None),
+    target_call_number: str | None = Form(default=None),
+    target_isbn13: str | None = Form(default=None),
+    sample_interval_seconds: float = Form(default=1.0),
+    max_analyzed_frames: int = Form(default=3),
+):
+    """Find one selected holding across several high-quality video frames."""
+
+    request_started_at = time.perf_counter()
+    filename = file.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="Uploaded video must have a filename.")
+    if not target_title.strip():
+        raise HTTPException(status_code=422, detail="target_title is required.")
+    if not 0.5 <= sample_interval_seconds <= 2.0:
+        raise HTTPException(status_code=400, detail="Frame interval must be between 0.5 and 2 seconds.")
+    if not 1 <= max_analyzed_frames <= 6:
+        raise HTTPException(status_code=400, detail="max_analyzed_frames must be between 1 and 6.")
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".mp4", ".mov", ".m4v", ".webm"}:
+        raise HTTPException(status_code=400, detail="Only MP4, MOV, M4V, and WEBM videos are supported.")
+
+    video_run_id = str(uuid4())
+    video_dir = Path("outputs/target-videos") / video_run_id
+    video_dir.mkdir(parents=True, exist_ok=True)
+    video_path = video_dir / f"original{suffix}"
+    size = 0
+    with video_path.open("wb") as destination:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_VIDEO_BYTES:
+                destination.close()
+                video_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="Video must be 100 MB or smaller.")
+            destination.write(chunk)
+
+    from worker.services.video_frame_service import (
+        FrameQuality,
+        extract_quality_frames,
+        select_target_search_frames,
+    )
+
+    try:
+        candidates, duration = extract_quality_frames(
+            video_path,
+            video_dir / "frames",
+            interval_seconds=sample_interval_seconds,
+            max_duration_seconds=15.0,
+            max_candidates=30,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    selected_frames = select_target_search_frames(
+        candidates,
+        limit=max_analyzed_frames,
+        minimum_spacing_seconds=max(
+            sample_interval_seconds,
+            duration / max_analyzed_frames,
+        ),
+    )
+    analyzed: list[tuple[FrameQuality, TargetBookSearchResponse]] = []
+    for frame in selected_frames:
+        frame_upload = UploadFile(file=BytesIO(frame.path.read_bytes()), filename=frame.path.name)
+        # Frame-level artifacts are intentionally not scheduled. The video response
+        # identifies the winning frame without creating several duplicate scan runs.
+        frame_response = await find_target_book_in_image(
+            background_tasks=BackgroundTasks(),
+            file=frame_upload,
+            holding_id=holding_id,
+            library_code=library_code,
+            target_title=target_title,
+            target_author=target_author,
+            target_call_number=target_call_number,
+            target_isbn13=target_isbn13,
+        )
+        frame_response = frame_response.model_copy(
+            update={"artifact_run_id": None, "artifact_prefix": None}
+        )
+        analyzed.append((frame, frame_response))
+        analyze_log(
+            f"[find_target_book_video] frame={frame.frame_index} "
+            f"timestamp={frame.timestamp_seconds:.2f}s status={frame_response.status} "
+            f"score={frame_response.best_detection.score if frame_response.best_detection else 0.0:.1f}"
+        )
+        if frame_response.status == "found":
+            break
+
+    winning_frame, winning_response = max(analyzed, key=lambda item: _target_search_rank(item[1]))
+    winning_bytes = winning_frame.path.read_bytes()
+    frame_results = [
+        TargetVideoFrameResult(
+            frame_index=frame.frame_index,
+            timestamp_seconds=round(frame.timestamp_seconds, 3),
+            quality_score=round(frame.quality_score, 4),
+            status=response.status,
+            best_score=response.best_detection.score if response.best_detection else None,
+            selected=frame.frame_index == winning_frame.frame_index,
+        )
+        for frame, response in analyzed
+    ]
+    analyze_log(
+        f"[find_target_book_video] done frames={len(analyzed)} "
+        f"selected={winning_frame.frame_index} timestamp={winning_frame.timestamp_seconds:.2f}s "
+        f"status={winning_response.status} total={time.perf_counter() - request_started_at:.1f}s"
+    )
+    if scan_artifact_service.enabled:
+        background_tasks.add_task(
+            save_target_video_search_artifacts,
+            run_id=video_run_id,
+            video_path=video_path,
+            library_code=library_code,
+            target=TargetBook(
+                holding_id=holding_id,
+                title=target_title.strip(),
+                author=target_author.strip() if target_author else None,
+                call_number=target_call_number.strip() if target_call_number else None,
+                isbn13=target_isbn13.strip() if target_isbn13 else None,
+            ),
+            analyzed_frames=[
+                {
+                    "frame_index": frame.frame_index,
+                    "timestamp_seconds": round(frame.timestamp_seconds, 3),
+                    "quality_score": round(frame.quality_score, 4),
+                    "path": str(frame.path),
+                    "status": response.status,
+                    "best_score": response.best_detection.score
+                    if response.best_detection
+                    else None,
+                    "selected": frame.frame_index == winning_frame.frame_index,
+                }
+                for frame, response in analyzed
+            ],
+            selected_frame_path=winning_frame.path,
+            response=winning_response,
+            timings={
+                "total_before_artifact_upload": round(
+                    time.perf_counter() - request_started_at, 4
+                ),
+                "analyzed_frame_count": float(len(analyzed)),
+            },
+        )
+    return TargetBookVideoSearchResponse(
+        video_run_id=video_run_id,
+        source_name=Path(filename).name,
+        duration_seconds=round(duration, 3),
+        sample_interval_seconds=sample_interval_seconds,
+        analyzed_frame_count=len(analyzed),
+        selected_frame_index=winning_frame.frame_index,
+        selected_timestamp_seconds=round(winning_frame.timestamp_seconds, 3),
+        selected_frame_data_url=(
+            f"data:image/jpeg;base64,{base64.b64encode(winning_bytes).decode('ascii')}"
+        ),
+        frame_results=frame_results,
+        target_search=winning_response,
+    )
 
 
 @router.post("/analyze_video", response_model=VideoAnalysisResponse)

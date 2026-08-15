@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from worker.core.config import settings
 from worker.schemas.artifact_evaluation import ArtifactRunSummary
-from worker.schemas.inference import MatchResponse, OCRResultItem, TargetBookSearchResponse
+from worker.schemas.inference import MatchResponse, OCRResultItem, TargetBook, TargetBookSearchResponse
 
 SAFE_KEY_PART = re.compile(r"[^a-zA-Z0-9._-]+")
 
@@ -378,6 +378,91 @@ class ScanArtifactService:
                 client,
                 f"{prefix}/result.json",
                 json.dumps(result_payload, ensure_ascii=False, indent=2).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+        return prefix
+
+    async def save_target_video_search(
+        self,
+        *,
+        run_id: str,
+        video_path: Path,
+        library_code: str,
+        target: TargetBook,
+        analyzed_frames: list[dict[str, Any]],
+        selected_frame_path: Path,
+        response: TargetBookSearchResponse,
+        timings: dict[str, float],
+    ) -> str | None:
+        """Persist one multi-frame patron target search for failure analysis."""
+
+        if not self.enabled:
+            return None
+
+        created_at = datetime.now(UTC)
+        root = settings.VIDEO_ARTIFACTS_PREFIX.strip("/")
+        prefix = "/".join(
+            (
+                root,
+                safe_key_part(library_code),
+                created_at.strftime("%Y/%m/%d"),
+                safe_key_part(run_id),
+            )
+        )
+        video_suffix = video_path.suffix.lower() or ".mp4"
+        original_key = f"{prefix}/original{video_suffix}"
+        annotated_key = f"{prefix}/selected/annotated.jpg"
+
+        with Image.open(selected_frame_path) as source:
+            selected_image = source.convert("RGB")
+
+        session = aioboto3.Session()
+        async with session.client("s3", region_name=settings.AWS_REGION) as client:
+            await self._put_bytes(
+                client,
+                original_key,
+                video_path.read_bytes(),
+                self._content_type(video_suffix),
+            )
+            await self._put_image(
+                client,
+                annotated_key,
+                self._annotate_target_search(selected_image, response),
+            )
+
+            frame_keys: list[str] = []
+            for frame in analyzed_frames:
+                frame_path = Path(str(frame["path"]))
+                frame_key = f"{prefix}/frames/{frame_path.name}"
+                await self._put_bytes(client, frame_key, frame_path.read_bytes(), "image/jpeg")
+                frame_keys.append(frame_key)
+
+            payload = {
+                "schema_version": "1.0",
+                "mode": "target_video_search",
+                "run_id": run_id,
+                "created_at": created_at.isoformat(),
+                "library": {"code": library_code, "room_name": None},
+                "target": target.model_dump(mode="json"),
+                "artifacts": {
+                    "original_key": original_key,
+                    "annotated_key": annotated_key,
+                    "frame_keys": frame_keys,
+                    "ground_truth_key": f"{prefix}/ground-truth.json",
+                },
+                "analyzed_frames": [
+                    {key: value for key, value in frame.items() if key != "path"}
+                    for frame in analyzed_frames
+                ],
+                "timings_seconds": timings,
+                "target_search": response.model_dump(
+                    mode="json", exclude={"artifact_run_id", "artifact_prefix"}
+                ),
+            }
+            await self._put_bytes(
+                client,
+                f"{prefix}/result.json",
+                json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
         return prefix

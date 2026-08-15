@@ -133,6 +133,28 @@ class TargetBookSearchResponse(BaseModel):
     artifact_prefix: Optional[str] = None
 
 
+class TargetVideoFrameResult(BaseModel):
+    frame_index: int
+    timestamp_seconds: float
+    quality_score: float
+    status: str
+    best_score: Optional[float] = None
+    selected: bool = False
+
+
+class TargetBookVideoSearchResponse(BaseModel):
+    video_run_id: str
+    source_name: str
+    duration_seconds: float
+    sample_interval_seconds: float
+    analyzed_frame_count: int
+    selected_frame_index: int
+    selected_timestamp_seconds: float
+    selected_frame_data_url: str
+    frame_results: List[TargetVideoFrameResult]
+    target_search: TargetBookSearchResponse
+
+
 class VideoFrameQuality(BaseModel):
     frame_index: int
     timestamp_seconds: float

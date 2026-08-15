@@ -98,4 +98,42 @@ def extract_quality_frames(
     return candidates, duration
 
 
+def select_target_search_frames(
+    candidates: list[FrameQuality],
+    *,
+    limit: int = 3,
+    minimum_spacing_seconds: float = 1.0,
+) -> list[FrameQuality]:
+    """Choose sharp, temporally diverse frames and return them in playback order."""
+
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+    if minimum_spacing_seconds < 0:
+        raise ValueError("minimum_spacing_seconds cannot be negative")
+
+    ranked = sorted(candidates, key=lambda candidate: candidate.quality_score, reverse=True)
+    selected: list[FrameQuality] = []
+    for candidate in ranked:
+        if any(
+            abs(candidate.timestamp_seconds - existing.timestamp_seconds)
+            < minimum_spacing_seconds
+            for existing in selected
+        ):
+            continue
+        selected.append(candidate)
+        if len(selected) == limit:
+            break
+
+    if len(selected) < min(limit, len(candidates)):
+        selected_ids = {candidate.frame_index for candidate in selected}
+        for candidate in ranked:
+            if candidate.frame_index in selected_ids:
+                continue
+            selected.append(candidate)
+            if len(selected) == limit:
+                break
+
+    return sorted(selected, key=lambda candidate: candidate.timestamp_seconds)
+
+
 video_frame_service = extract_quality_frames

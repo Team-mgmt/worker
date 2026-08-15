@@ -2,7 +2,13 @@ import { useState } from "react";
 
 import { createFileRoute } from "@tanstack/react-router";
 
-import { CameraIcon, ImagesIcon, Loader2Icon, SearchIcon } from "lucide-react";
+import {
+  CameraIcon,
+  ImagesIcon,
+  Loader2Icon,
+  SearchIcon,
+  VideoIcon,
+} from "lucide-react";
 
 import { LIBRARIES } from "@/lib/libraries";
 
@@ -49,6 +55,15 @@ type TargetResult = {
   }>;
 };
 
+type TargetVideoResult = {
+  video_run_id: string;
+  duration_seconds: number;
+  analyzed_frame_count: number;
+  selected_timestamp_seconds: number;
+  selected_frame_data_url: string;
+  target_search: TargetResult;
+};
+
 function apiUrl(path: string) {
   const base = import.meta.env.VITE_BASE_URL || "/api";
   return new URL(
@@ -75,6 +90,7 @@ function PatronBookFinder() {
   const [preview, setPreview] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
   const [result, setResult] = useState<TargetResult | null>(null);
+  const [videoResult, setVideoResult] = useState<TargetVideoResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -106,6 +122,7 @@ function PatronBookFinder() {
     setBusy(true);
     setError("");
     setResult(null);
+    setVideoResult(null);
     const objectUrl = URL.createObjectURL(file);
     setPreview(objectUrl);
     const image = new Image();
@@ -132,6 +149,55 @@ function PatronBookFinder() {
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "책 찾기에 실패했습니다.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const analyzeVideo = async (file: File) => {
+    if (!target?.book) return;
+    setBusy(true);
+    setError("");
+    setResult(null);
+    setVideoResult(null);
+    setPreview(null);
+    try {
+      const body = new FormData();
+      body.set("file", file);
+      body.set("holding_id", target.id);
+      body.set("library_code", libraryCode);
+      body.set("target_title", target.book.bookname);
+      if (target.book.authors) body.set("target_author", target.book.authors);
+      if (target.callNumber) body.set("target_call_number", target.callNumber);
+      if (target.book.isbn13) body.set("target_isbn13", target.book.isbn13);
+      body.set("sample_interval_seconds", "1");
+      body.set("max_analyzed_frames", "3");
+
+      const response = await fetch(
+        workerUrl("inference/find_target_book_video"),
+        { method: "POST", body },
+      );
+      const payload = await response.json();
+      if (!response.ok)
+        throw new Error(payload?.detail || "동영상에서 책을 찾지 못했습니다.");
+
+      const videoPayload = payload as TargetVideoResult;
+      const selectedImage = new Image();
+      selectedImage.src = videoPayload.selected_frame_data_url;
+      await selectedImage.decode();
+      setImageSize({
+        width: selectedImage.naturalWidth,
+        height: selectedImage.naturalHeight,
+      });
+      setPreview(videoPayload.selected_frame_data_url);
+      setVideoResult(videoPayload);
+      setResult(videoPayload.target_search);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "동영상에서 책을 찾지 못했습니다.",
       );
     } finally {
       setBusy(false);
@@ -270,6 +336,33 @@ function PatronBookFinder() {
               />
             </label>
           </Button>
+          <Button
+            asChild
+            size="lg"
+            variant="secondary"
+            disabled={busy}
+            className="col-span-2"
+          >
+            <label className="cursor-pointer">
+              {busy ? (
+                <Loader2Icon className="size-5 animate-spin" />
+              ) : (
+                <VideoIcon className="size-5" />
+              )}
+              동영상으로 찾기 (최대 15초)
+              <input
+                className="sr-only"
+                type="file"
+                accept="video/mp4,video/quicktime,video/webm,.m4v"
+                disabled={busy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void analyzeVideo(file);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          </Button>
         </div>
       ) : null}
 
@@ -313,6 +406,12 @@ function PatronBookFinder() {
       {resultText ? (
         <section className="mt-4 border bg-white p-4">
           <p className="text-lg font-bold">{resultText}</p>
+          {videoResult ? (
+            <p className="mt-2 text-sm font-medium text-blue-700">
+              영상 {videoResult.selected_timestamp_seconds.toFixed(1)}초 지점 ·{" "}
+              {videoResult.analyzed_frame_count}개 프레임 분석
+            </p>
+          ) : null}
           {result?.best_detection ? (
             <p className="mt-2 text-sm text-zinc-600">
               일치 점수 {result.best_detection.score.toFixed(1)} · 후보 차이{" "}

@@ -9,6 +9,20 @@ The patron flow is separate from the librarian full-catalog matching flow.
 4. The worker detects/OCRs the spines and compares each OCR result directly with that target.
 5. The UI reports `found`, `possible`, or `not_found` and highlights the best spine.
 
+The same `/scan` page also supports a short patron video without replacing the image flow:
+
+1. The patron records or selects a video of at most 15 seconds.
+2. `POST /worker/inference/find_target_book_video` samples the video every second.
+3. It chooses up to three sharp frames with temporal spacing instead of analyzing every frame.
+4. Frames are checked in playback order with the existing target-image pipeline.
+5. Processing stops as soon as one frame reaches `found`; otherwise the strongest reviewed result is returned.
+6. The UI shows only the selected target result, winning frame, timestamp, and target candidate boxes. It does
+   not expose a catalog list for every other detected spine.
+
+Video artifacts are written asynchronously below `shelfalign/videos/{library_code}/...`: the original video,
+analyzed frames, annotated winning frame, and `result.json`. This makes false positives and target-missing
+videos available for later GT review without adding S3 upload time to the HTTP response.
+
 No vector model or GPU is required. The MVP combines normalized RapidFuzz title/author similarity with
 structured KDC and book-code similarity. The call-number score separates KDC, the author-number stem,
 and the final title symbol; a different final symbol receives an additional penalty. When a call number
@@ -40,3 +54,7 @@ pnpm --filter @shelfalign/backoffice check-types
 After deployment, open `/scan`, search for a holding, select it, and upload both a target-present image
 and a target-absent image. Record the response status, best score, margin, total latency, and whether the
 highlighted bounding box is correct.
+
+For video verification, repeat both cases with a 5-15 second sweep. Confirm that the returned timestamp
+corresponds to the displayed frame, `analyzed_frame_count` is at most three, and a confident early frame
+prevents later frames from being analyzed.

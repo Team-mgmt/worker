@@ -122,3 +122,79 @@ async def test_target_search_artifact_saves_full_scoring_diagnostics(tmp_path, m
     assert payload["model"]["detector_sha256"] == "model-sha"
     assert f"{prefix}/original.jpg" in stored
     assert f"{prefix}/annotated.jpg" in stored
+
+
+@pytest.mark.asyncio
+async def test_target_video_search_artifact_saves_video_frames_and_result(tmp_path, monkeypatch) -> None:
+    video_path = tmp_path / "shelf.mp4"
+    video_path.write_bytes(b"test-video")
+    selected_frame = tmp_path / "frame-000030.jpg"
+    Image.new("RGB", (200, 100), "white").save(selected_frame)
+    target = TargetBook(
+        holding_id="holding-video",
+        title="Target title",
+        author="Target author",
+        call_number="813.6 A1",
+    )
+    response = find_target_book(
+        target,
+        [
+            OCRResultItem(
+                detected_order=1,
+                raw_text="Target title Target author 813.6 A1",
+                title="Target title",
+                author="Target author",
+                call_number="813.6 A1",
+                bbox=[10, 10, 90, 90],
+            )
+        ],
+    )
+    stored: dict[str, bytes] = {}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def put_object(self, *, Key, Body, **kwargs):
+            stored[Key] = Body
+
+    class FakeSession:
+        def client(self, *args, **kwargs):
+            return FakeClient()
+
+    monkeypatch.setattr("worker.services.scan_artifact_service.aioboto3.Session", FakeSession)
+    monkeypatch.setattr("worker.services.scan_artifact_service.settings.SCAN_ARTIFACTS_ENABLED", True)
+    monkeypatch.setattr("worker.services.scan_artifact_service.settings.S3_BUCKET_NAME", "test-bucket")
+
+    prefix = await ScanArtifactService().save_target_video_search(
+        run_id="video-run",
+        video_path=video_path,
+        library_code="111058",
+        target=target,
+        analyzed_frames=[
+            {
+                "frame_index": 30,
+                "timestamp_seconds": 1.0,
+                "quality_score": 0.9,
+                "path": str(selected_frame),
+                "status": response.status,
+                "best_score": response.best_detection.score if response.best_detection else None,
+                "selected": True,
+            }
+        ],
+        selected_frame_path=selected_frame,
+        response=response,
+        timings={"total_before_artifact_upload": 4.2, "analyzed_frame_count": 1.0},
+    )
+
+    assert prefix is not None
+    payload = json.loads(stored[f"{prefix}/result.json"])
+    assert payload["mode"] == "target_video_search"
+    assert payload["target"]["holding_id"] == "holding-video"
+    assert payload["analyzed_frames"][0]["selected"] is True
+    assert f"{prefix}/original.mp4" in stored
+    assert f"{prefix}/frames/frame-000030.jpg" in stored
+    assert f"{prefix}/selected/annotated.jpg" in stored
