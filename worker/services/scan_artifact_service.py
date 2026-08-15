@@ -167,6 +167,7 @@ class ScanArtifactService:
         model_path: str | None,
         model_sha256: str | None = None,
         vision_provider: str = "local",
+        matching_comparison: Any | None = None,
     ) -> str | None:
         if not self.enabled:
             return None
@@ -223,6 +224,12 @@ class ScanArtifactService:
                 "timings_seconds": timings,
                 "inference": inference_payload,
             }
+            if matching_comparison is not None:
+                result_payload["matching_comparison"] = (
+                    matching_comparison.model_dump(mode="json")
+                    if hasattr(matching_comparison, "model_dump")
+                    else matching_comparison
+                )
             await self._put_bytes(
                 client,
                 f"{prefix}/result.json",

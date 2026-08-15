@@ -1,5 +1,15 @@
 # DB matching ablation harness
 
+## Live shadow comparison
+
+Administrator image analysis reranks each detected spine with all four
+strategies when scan artifact storage is enabled. YOLO and OCR still run once,
+the production response continues to use the existing final matcher, and the
+additional output is written only to `matching_comparison` in the S3
+`result.json`. Each spine records the shared candidate-pool size and every
+strategy's Top-3 IDs, bibliographic fields, score, and reranking latency.
+Accuracy still requires assigning the actual book or holding as ground truth.
+
 This harness compares four catalog reranking strategies on the same reviewed
 OCR/GT cases and the same RDS candidate pools.
 

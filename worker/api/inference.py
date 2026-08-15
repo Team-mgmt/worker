@@ -28,6 +28,7 @@ from worker.schemas.inference import (
 )
 from worker.services.detection_service import SpineDetection, detector_service
 from worker.services.inference_service import process_scan_session_request
+from worker.services.matching_ablation_service import MatchingShadowComparison, build_shadow_comparison
 from worker.services.ocr_field_parser import extract_ocr_fields
 from worker.services.scan_artifact_service import scan_artifact_service
 from worker.services.target_matching_service import find_target_book, is_confident_early_match
@@ -50,6 +51,27 @@ def analyze_log(message: str) -> None:
             log_file.write(line + "\n")
     except Exception:
         pass
+
+
+async def build_admin_shadow_comparison(
+    db: AsyncSession,
+    library_code: str,
+    ocr_results: list[OCRResultItem],
+) -> MatchingShadowComparison | None:
+    """Collect four live rerankings without changing the production response."""
+    if not scan_artifact_service.enabled:
+        return None
+    try:
+        comparison = await build_shadow_comparison(db, library_code, ocr_results)
+        analyze_log(
+            f"[analyze_vision] shadow comparison done spines={len(comparison.spines)} "
+            f"elapsed={comparison.total_latency_ms / 1000.0:.1f}s"
+        )
+        return comparison
+    except Exception as exc:  # noqa: BLE001 - diagnostics must never fail live inference
+        analyze_log(f"[analyze_vision] shadow comparison failed; continuing without it: {exc}")
+        await db.rollback()
+        return None
 
 
 async def save_target_search_artifacts(**kwargs) -> None:
@@ -310,6 +332,7 @@ async def analyze_vision(
             response = await process_scan_session_request(req, db, persist=False)
             matching_elapsed = time.perf_counter() - match_started_at
             analyze_log(f"[analyze_vision] matching done elapsed={matching_elapsed:.1f}s provider=remote")
+            matching_comparison = await build_admin_shadow_comparison(db, library_code, remote_items)
             try:
                 artifact_started_at = time.perf_counter()
                 artifact_prefix = await scan_artifact_service.save_scan(
@@ -328,6 +351,7 @@ async def analyze_vision(
                     model_path=None,
                     model_sha256=remote_model_sha256,
                     vision_provider=settings.REMOTE_VISION_PROVIDER,
+                    matching_comparison=matching_comparison,
                 )
                 if artifact_prefix:
                     response.artifact_run_id = run_id
@@ -498,6 +522,7 @@ async def analyze_vision(
     response = await process_scan_session_request(req, db, persist=False)
     analyze_log(f"[analyze_vision] matching done elapsed={time.perf_counter() - match_started_at:.1f}s")
     matching_elapsed = time.perf_counter() - match_started_at
+    matching_comparison = await build_admin_shadow_comparison(db, library_code, ocr_results_payload)
 
     decision_counts: dict[str, int] = {}
     for result in response.results:
@@ -522,6 +547,7 @@ async def analyze_vision(
                 "total_before_artifact_upload": round(time.perf_counter() - request_started_at, 4),
             },
             model_path=detector_service.model_path if detector_service.is_ready else None,
+            matching_comparison=matching_comparison,
         )
         if artifact_prefix:
             response.artifact_run_id = run_id

@@ -30,6 +30,33 @@ STRATEGIES: tuple[AblationStrategy, ...] = (
 )
 
 
+class ShadowCandidate(BaseModel):
+    rank: int
+    holding_id: str
+    book_id: str
+    title: str
+    author: str
+    call_number: str
+    score: float
+
+
+class ShadowStrategyResult(BaseModel):
+    latency_ms: float
+    top_candidates: list[ShadowCandidate] = Field(default_factory=list)
+
+
+class ShadowSpineComparison(BaseModel):
+    detected_order: int
+    candidate_pool_size: int
+    strategies: dict[AblationStrategy, ShadowStrategyResult]
+
+
+class MatchingShadowComparison(BaseModel):
+    schema_version: str = "1.0"
+    total_latency_ms: float
+    spines: list[ShadowSpineComparison] = Field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class MatchingAblationCase:
     library_code: str
@@ -200,6 +227,53 @@ def score_candidate_rows(
         ranked.append((row, round(score, 6)))
     ranked.sort(key=lambda item: item[1], reverse=True)
     return ranked
+
+
+async def build_shadow_comparison(
+    session: Any,
+    library_code: str,
+    ocr_results: Sequence[OCRResultItem],
+    *,
+    top_k: int = 3,
+) -> MatchingShadowComparison:
+    """Rerank each live OCR result four ways without changing production decisions."""
+    from worker.services.matching_service import query_catalog_candidate_rows
+
+    comparison_started_at = time.perf_counter()
+    spines: list[ShadowSpineComparison] = []
+    for ocr in ocr_results:
+        rows = await query_catalog_candidate_rows(session, library_code, ocr)
+        strategies: dict[AblationStrategy, ShadowStrategyResult] = {}
+        for strategy in STRATEGIES:
+            started_at = time.perf_counter()
+            ranked = score_candidate_rows(strategy, ocr, rows)
+            strategies[strategy] = ShadowStrategyResult(
+                latency_ms=round((time.perf_counter() - started_at) * 1000.0, 4),
+                top_candidates=[
+                    ShadowCandidate(
+                        rank=rank,
+                        holding_id=str(row.get("holding_id") or ""),
+                        book_id=str(row.get("book_id") or ""),
+                        title=str(row.get("bookname") or ""),
+                        author=str(row.get("authors") or ""),
+                        call_number=str(row.get("call_number") or ""),
+                        score=round(score, 4),
+                    )
+                    for rank, (row, score) in enumerate(ranked[:top_k], start=1)
+                ],
+            )
+        spines.append(
+            ShadowSpineComparison(
+                detected_order=ocr.detected_order,
+                candidate_pool_size=len(rows),
+                strategies=strategies,
+            )
+        )
+
+    return MatchingShadowComparison(
+        total_latency_ms=round((time.perf_counter() - comparison_started_at) * 1000.0, 4),
+        spines=spines,
+    )
 
 
 def _percentile(values: Sequence[float], percentile: float) -> float:

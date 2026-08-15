@@ -1,6 +1,9 @@
+import pytest
+
 from worker.schemas.inference import OCRResultItem
 from worker.services.matching_ablation_service import (
     MatchingAblationCase,
+    build_shadow_comparison,
     cases_from_artifacts,
     evaluate_ablation_cases,
     score_candidate_rows,
@@ -21,6 +24,37 @@ def candidate(holding_id: str, title: str, call_number: str) -> dict:
         "book_code": book_code,
         "call_number": call_number,
     }
+
+
+@pytest.mark.asyncio
+async def test_build_shadow_comparison_records_four_rankings(monkeypatch) -> None:
+    rows = [
+        candidate("correct", "콩가루 수사단", "813.6 주64ㅋ"),
+        candidate("wrong", "시간의 계단", "813.6 주64ㅅ"),
+    ]
+
+    async def fake_query(*args, **kwargs):
+        return rows
+
+    monkeypatch.setattr(
+        "worker.services.matching_service.query_catalog_candidate_rows",
+        fake_query,
+    )
+    comparison = await build_shadow_comparison(
+        object(),
+        "111058",
+        [OCRResultItem(detected_order=13, title="콩가루 수사단", call_number="813.6 주64ㅋ")],
+    )
+
+    assert comparison.schema_version == "1.0"
+    assert comparison.spines[0].candidate_pool_size == 2
+    assert set(comparison.spines[0].strategies) == {
+        "baseline",
+        "preprocessed_fuzzy",
+        "tfidf",
+        "final",
+    }
+    assert comparison.spines[0].strategies["final"].top_candidates[0].holding_id == "correct"
 
 
 def test_score_candidate_rows_runs_all_ablation_strategies() -> None:

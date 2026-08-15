@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 from PIL import Image
 
-from worker.schemas.inference import OCRResultItem, TargetBook
+from worker.schemas.inference import DetectionResult, MatchResponse, OCRResultItem, TargetBook
 from worker.services.detection_service import BookSpineDetector
 from worker.services.scan_artifact_service import ScanArtifactService, safe_key_part
 from worker.services.target_matching_service import find_target_book
@@ -42,6 +42,52 @@ def test_detection_preserves_confidence_and_polygon() -> None:
     assert detection.confidence == 0.91
     assert detection.polygon[0] == [12.0, 20.0]
     assert detection.is_obb is True
+
+
+@pytest.mark.asyncio
+async def test_admin_scan_artifact_saves_shadow_comparison(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / "shelf.jpg"
+    Image.new("RGB", (200, 100), "white").save(image_path)
+    response = MatchResponse(
+        session_id=0,
+        library_code="111058",
+        results=[DetectionResult(detected_order=1, decision="needs_review")],
+    )
+    stored: dict[str, bytes] = {}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def put_object(self, *, Key, Body, **kwargs):
+            stored[Key] = Body
+
+    class FakeSession:
+        def client(self, *args, **kwargs):
+            return FakeClient()
+
+    monkeypatch.setattr("worker.services.scan_artifact_service.aioboto3.Session", FakeSession)
+    monkeypatch.setattr("worker.services.scan_artifact_service.settings.SCAN_ARTIFACTS_ENABLED", True)
+    monkeypatch.setattr("worker.services.scan_artifact_service.settings.S3_BUCKET_NAME", "test-bucket")
+    monkeypatch.setattr("worker.services.scan_artifact_service.settings.SCAN_ARTIFACTS_SAVE_CROPS", False)
+
+    prefix = await ScanArtifactService().save_scan(
+        run_id="shadow-run",
+        image_path=image_path,
+        library_code="111058",
+        room_name="room",
+        response=response,
+        timings={"matching": 0.1},
+        model_path=None,
+        matching_comparison={"schema_version": "1.0", "spines": []},
+    )
+
+    assert prefix is not None
+    payload = json.loads(stored[f"{prefix}/result.json"])
+    assert payload["matching_comparison"]["schema_version"] == "1.0"
 
 
 @pytest.mark.asyncio
