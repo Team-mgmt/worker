@@ -73,6 +73,7 @@ async def test_remote_service_posts_image_and_parses_result(
     items, detection_seconds, ocr_seconds, model_sha256, retry_orders, retry_seconds = await RemoteVisionService().analyze(
         image_path,
         adaptive=False,
+        detection_confidence=0.6,
         target=TargetBook(
             holding_id="holding-1",
             title="환한 숨",
@@ -89,3 +90,4 @@ async def test_remote_service_posts_image_and_parses_result(
     assert retry_seconds == 0.2
     assert posted_payload["target_title"] == "환한 숨"
     assert posted_payload["target_call_number"] == "813.6 조92ㅎ"
+    assert posted_payload["detection_confidence"] == 0.6

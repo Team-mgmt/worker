@@ -61,6 +61,7 @@ app = modal.App(APP_NAME)
 class VisionInput(BaseModel):
     image_base64: str
     adaptive: bool = True
+    detection_confidence: float = Field(default=0.5, ge=0.05, le=0.95)
     target_title: str | None = None
     target_author: str | None = None
     target_call_number: str | None = None
@@ -138,7 +139,10 @@ class ShelfAlignVision:
             image_path.write_bytes(image_bytes)
 
             detection_started = time.perf_counter()
-            detections = self.detector.detect_spines(str(image_path))
+            detections = self.detector.detect_spines(
+                str(image_path),
+                conf_threshold=request.detection_confidence,
+            )
             detection_seconds = time.perf_counter() - detection_started
 
             ocr_started = time.perf_counter()

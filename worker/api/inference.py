@@ -7,9 +7,10 @@ import time
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
+from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -278,6 +279,7 @@ async def analyze_vision(
     library_code: str = "111058",
     room_name: str = "노원중앙도서관 종합자료실",
     preprocess: bool = False,
+    detection_confidence: Annotated[float, Query(ge=0.05, le=0.95)] = 0.5,
 ):
     request_started_at = time.perf_counter()
     run_id = str(uuid4())
@@ -307,9 +309,11 @@ async def analyze_vision(
             remote_items, detection_elapsed, ocr_elapsed, remote_model_sha256, _, _ = await remote_vision_service.analyze(
                 temp_path,
                 adaptive=True,
+                detection_confidence=detection_confidence,
             )
             analyze_log(
-                f"[analyze_vision] remote vision done provider={settings.REMOTE_VISION_PROVIDER} spines={len(remote_items)} "
+                f"[analyze_vision] remote vision done provider={settings.REMOTE_VISION_PROVIDER} "
+                f"threshold={detection_confidence:.2f} spines={len(remote_items)} "
                 f"detection={detection_elapsed:.1f}s ocr={ocr_elapsed:.1f}s "
                 f"round_trip={time.perf_counter() - remote_started_at:.1f}s"
             )
@@ -343,6 +347,7 @@ async def analyze_vision(
                     response=response,
                     timings={
                         "detection": round(detection_elapsed, 4),
+                        "detection_confidence_threshold": round(detection_confidence, 4),
                         "ocr": round(ocr_elapsed, 4),
                         "matching": round(matching_elapsed, 4),
                         "remote_round_trip": round(time.perf_counter() - remote_started_at, 4),
@@ -399,8 +404,14 @@ async def analyze_vision(
     if not detections:
         if detector_service.is_ready:
             try:
-                detections = detector_service.detect_spines(str(temp_path))
-                analyze_log(f"[analyze_vision] YOLO detected {len(detections)} spines")
+                detections = detector_service.detect_spines(
+                    str(temp_path),
+                    conf_threshold=detection_confidence,
+                )
+                analyze_log(
+                    f"[analyze_vision] YOLO detected {len(detections)} spines "
+                    f"threshold={detection_confidence:.2f}"
+                )
             except Exception as exc:
                 analyze_log(f"[analyze_vision] YOLO detection failed: {exc}")
         else:

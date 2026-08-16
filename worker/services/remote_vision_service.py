@@ -60,6 +60,7 @@ class RemoteVisionService:
         image_path: Path,
         *,
         adaptive: bool,
+        detection_confidence: float = 0.5,
         target: TargetBook | None = None,
     ) -> tuple[list[OCRResultItem], float, float, str, list[int], float]:
         endpoint = settings.REMOTE_VISION_ENDPOINT.strip()
@@ -76,6 +77,7 @@ class RemoteVisionService:
             request_payload: dict[str, object] = {
                 "image_base64": encoded_image,
                 "adaptive": adaptive,
+                "detection_confidence": detection_confidence,
             }
             if target is not None:
                 request_payload.update(

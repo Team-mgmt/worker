@@ -241,6 +241,7 @@ function mapWorkerDetections(
 
 function ShelfOpsPage() {
   const [selectedLibraryCode, setSelectedLibraryCode] = useState("111189");
+  const [detectionConfidence, setDetectionConfidence] = useState("0.60");
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imageSize, setImageSize] = useState<{
@@ -323,6 +324,7 @@ function ShelfOpsPage() {
       );
       workerUrl.searchParams.set("library_code", selectedLibrary.code);
       workerUrl.searchParams.set("room_name", selectedLibrary.roomName);
+      workerUrl.searchParams.set("detection_confidence", detectionConfidence);
       const response = await fetch(workerUrl, {
         method: "POST",
         body: formData,
@@ -365,6 +367,21 @@ function ShelfOpsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Select
+            value={detectionConfidence}
+            onValueChange={setDetectionConfidence}
+          >
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="검출 임계치" />
+            </SelectTrigger>
+            <SelectContent>
+              {["0.50", "0.55", "0.60", "0.65", "0.70"].map((value) => (
+                <SelectItem key={value} value={value}>
+                  검출 임계치 {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select
             value={selectedLibraryCode}
             onValueChange={handleLibraryChange}
