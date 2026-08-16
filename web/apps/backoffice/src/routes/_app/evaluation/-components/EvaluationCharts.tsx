@@ -1,3 +1,17 @@
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
 type DetectionMetrics = {
   ground_truth_count: number;
   prediction_count: number;
@@ -27,228 +41,306 @@ type MatchingMetrics = {
   top3_accuracy: number;
 };
 
-function percentage(value: number) {
+const COLORS = {
+  navy: "#355070",
+  blue: "#4C78A8",
+  teal: "#59A14F",
+  cyan: "#76B7B2",
+  amber: "#F2A65A",
+  red: "#E15759",
+  violet: "#9C755F",
+  grid: "#E5E7EB",
+  muted: "#6B7280",
+};
+
+function percent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function AccuracyBar({
-  label,
-  value,
-  color = "bg-sky-600",
+function ChartCard({
+  title,
+  description,
+  children,
 }: {
-  label: string;
-  value: number;
-  color?: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
 }) {
-  const width = Math.max(0, Math.min(100, value * 100));
-
   return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
-        <span className="font-medium">{label}</span>
-        <span className="font-bold tabular-nums">{percentage(value)}</span>
+    <article className="rounded-lg border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="mb-5">
+        <h4 className="font-bold tracking-tight text-zinc-900">{title}</h4>
+        <p className="mt-1 text-xs leading-5 text-zinc-500">{description}</p>
       </div>
-      <div className="h-3 overflow-hidden rounded-full bg-zinc-100">
-        <div
-          className={`h-full rounded-full ${color}`}
-          style={{ width: `${width}%` }}
-        />
-      </div>
-    </div>
+      {children}
+    </article>
   );
 }
 
 function DetectionConfusionMatrix({ metrics }: { metrics: DetectionMetrics }) {
-  return (
-    <div>
-      <div className="mb-3">
-        <h4 className="font-bold">책등 검출 혼동행렬</h4>
-        <p className="mt-1 text-xs text-muted-foreground">
-          IoU 기준을 통과한 책등 연결 결과입니다.
-        </p>
-      </div>
-      <div className="grid grid-cols-[5.5rem_repeat(2,minmax(0,1fr))] overflow-hidden rounded-lg border text-center text-sm">
-        <div className="bg-zinc-50 p-2 text-xs text-muted-foreground">
-          실제 ＼ 예측
-        </div>
-        <div className="border-l bg-zinc-50 p-2 font-medium">책등</div>
-        <div className="border-l bg-zinc-50 p-2 font-medium">배경</div>
-
-        <div className="border-t bg-zinc-50 p-3 font-medium">책등</div>
-        <div className="border-l border-t bg-emerald-100 p-3">
-          <strong className="block text-2xl tabular-nums text-emerald-800">
-            {metrics.true_positive}
-          </strong>
-          <span className="text-xs text-emerald-700">TP</span>
-        </div>
-        <div className="border-l border-t bg-red-50 p-3">
-          <strong className="block text-2xl tabular-nums text-red-700">
-            {metrics.false_negative}
-          </strong>
-          <span className="text-xs text-red-600">FN</span>
-        </div>
-
-        <div className="border-t bg-zinc-50 p-3 font-medium">배경</div>
-        <div className="border-l border-t bg-amber-100 p-3">
-          <strong className="block text-2xl tabular-nums text-amber-800">
-            {metrics.false_positive}
-          </strong>
-          <span className="text-xs text-amber-700">FP</span>
-        </div>
-        <div className="border-l border-t bg-zinc-100 p-3 text-muted-foreground">
-          <strong className="block text-2xl">—</strong>
-          <span className="text-xs">TN 미정의</span>
-        </div>
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        객체 검출에서는 가능한 모든 배경 영역의 수를 정의할 수 없어 TN을
-        계산하지 않습니다.
-      </p>
-    </div>
+  const maximum = Math.max(
+    metrics.true_positive,
+    metrics.false_positive,
+    metrics.false_negative,
+    1,
   );
-}
-
-function StructureSummary({ metrics }: { metrics: StructureMetrics }) {
-  const total =
-    metrics.correct_ground_truth_count +
-    metrics.split_ground_truth_count +
-    metrics.merged_ground_truth_count +
-    metrics.missed_ground_truth_count;
-  const segments = [
+  const cells = [
     {
-      label: "정상",
-      value: metrics.correct_ground_truth_count,
-      color: "bg-emerald-500",
+      label: "TP",
+      value: metrics.true_positive,
+      color: COLORS.blue,
+      tone: metrics.true_positive / maximum,
     },
     {
-      label: "분할",
-      value: metrics.split_ground_truth_count,
-      color: "bg-amber-500",
+      label: "FN",
+      value: metrics.false_negative,
+      color: COLORS.red,
+      tone: metrics.false_negative / maximum,
     },
     {
-      label: "병합 영향",
-      value: metrics.merged_ground_truth_count,
-      color: "bg-violet-500",
-    },
-    {
-      label: "누락",
-      value: metrics.missed_ground_truth_count,
-      color: "bg-red-500",
+      label: "FP",
+      value: metrics.false_positive,
+      color: COLORS.amber,
+      tone: metrics.false_positive / maximum,
     },
   ];
 
   return (
-    <div>
-      <h4 className="font-bold">검출 구조</h4>
-      <p className="mt-1 text-xs text-muted-foreground">
-        GT 한 권을 기준으로 정상·분할·병합·누락을 구분합니다.
-      </p>
-      <div className="mt-5 flex h-5 overflow-hidden rounded-full bg-zinc-100">
-        {segments.map((segment) =>
-          segment.value ? (
-            <div
-              key={segment.label}
-              className={segment.color}
-              style={{ width: `${(segment.value / total) * 100}%` }}
-              title={`${segment.label} ${segment.value}권`}
-            />
-          ) : null,
-        )}
+    <ChartCard
+      title="책등 검출 혼동행렬"
+      description="IoU 0.5 이상 연결을 정답 검출로 계산했습니다."
+    >
+      <div className="mx-auto grid max-w-md grid-cols-[4.75rem_repeat(2,minmax(0,1fr))] gap-1 text-center text-xs">
+        <div />
+        <div className="pb-2 font-semibold text-zinc-600">예측 책등</div>
+        <div className="pb-2 font-semibold text-zinc-600">예측 배경</div>
+        <div className="flex items-center justify-end pr-3 font-semibold text-zinc-600">
+          실제 책등
+        </div>
+        {cells.slice(0, 2).map((cell) => (
+          <div
+            key={cell.label}
+            className="flex min-h-24 flex-col items-center justify-center rounded-md border"
+            style={{
+              backgroundColor: `${cell.color}${Math.round(25 + cell.tone * 80)
+                .toString(16)
+                .padStart(2, "0")}`,
+              borderColor: `${cell.color}55`,
+            }}
+          >
+            <strong className="text-3xl tabular-nums text-zinc-900">
+              {cell.value}
+            </strong>
+            <span className="mt-1 font-semibold text-zinc-600">
+              {cell.label}
+            </span>
+          </div>
+        ))}
+        <div className="flex items-center justify-end pr-3 font-semibold text-zinc-600">
+          실제 배경
+        </div>
+        <div
+          className="flex min-h-24 flex-col items-center justify-center rounded-md border"
+          style={{
+            backgroundColor: `${cells[2].color}${Math.round(
+              25 + cells[2].tone * 80,
+            )
+              .toString(16)
+              .padStart(2, "0")}`,
+            borderColor: `${cells[2].color}55`,
+          }}
+        >
+          <strong className="text-3xl tabular-nums text-zinc-900">
+            {cells[2].value}
+          </strong>
+          <span className="mt-1 font-semibold text-zinc-600">FP</span>
+        </div>
+        <div className="flex min-h-24 flex-col items-center justify-center rounded-md border border-dashed bg-zinc-50 text-zinc-400">
+          <strong className="text-2xl">—</strong>
+          <span className="mt-1 font-medium">TN 미정의</span>
+        </div>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        {segments.map((segment) => (
-          <div key={segment.label} className="flex items-center gap-2">
-            <span className={`h-2.5 w-2.5 rounded-full ${segment.color}`} />
-            <span className="text-muted-foreground">{segment.label}</span>
-            <strong className="ml-auto tabular-nums">{segment.value}권</strong>
+      <div className="mt-5 grid grid-cols-4 gap-2 border-t pt-4 text-center">
+        {[
+          ["Precision", percent(metrics.precision)],
+          ["Recall", percent(metrics.recall)],
+          ["F1", percent(metrics.f1)],
+          ["평균 IoU", percent(metrics.mean_matched_iou)],
+        ].map(([label, value]) => (
+          <div key={label}>
+            <p className="text-[11px] text-zinc-500">{label}</p>
+            <p className="mt-1 font-bold tabular-nums text-zinc-800">{value}</p>
           </div>
         ))}
       </div>
-    </div>
+    </ChartCard>
   );
 }
 
-function MatchingSummary({ metrics }: { metrics: MatchingMetrics }) {
-  const top1Correct = Math.round(
-    metrics.db_evaluated_count * metrics.top1_accuracy,
-  );
-  const top3Correct = Math.round(
-    metrics.db_evaluated_count * metrics.top3_accuracy,
-  );
-  const top3Added = Math.max(0, top3Correct - top1Correct);
-  const failed = Math.max(0, metrics.db_evaluated_count - top3Correct);
+function StructureChart({ metrics }: { metrics: StructureMetrics }) {
+  const data = [
+    {
+      name: "정상",
+      value: metrics.correct_ground_truth_count,
+      color: COLORS.teal,
+    },
+    {
+      name: "분할",
+      value: metrics.split_ground_truth_count,
+      color: COLORS.amber,
+    },
+    {
+      name: "병합 영향",
+      value: metrics.merged_ground_truth_count,
+      color: COLORS.violet,
+    },
+    {
+      name: "누락",
+      value: metrics.missed_ground_truth_count,
+      color: COLORS.red,
+    },
+  ];
 
   return (
-    <div>
-      <h4 className="font-bold">DB 도서 식별 결과</h4>
-      <p className="mt-1 text-xs text-muted-foreground">
-        정답 도서가 후보 순위에 포함된 결과입니다.
-      </p>
-      <div className="mt-4 grid grid-cols-3 overflow-hidden rounded-lg border text-center">
-        <div className="bg-emerald-50 px-2 py-4">
-          <strong className="block text-2xl tabular-nums text-emerald-800">
-            {top1Correct}
-          </strong>
-          <span className="text-xs text-emerald-700">Top-1 정답</span>
-        </div>
-        <div className="border-l bg-sky-50 px-2 py-4">
-          <strong className="block text-2xl tabular-nums text-sky-800">
-            {top3Added}
-          </strong>
-          <span className="text-xs text-sky-700">Top-3 추가</span>
-        </div>
-        <div className="border-l bg-red-50 px-2 py-4">
-          <strong className="block text-2xl tabular-nums text-red-700">
-            {failed}
-          </strong>
-          <span className="text-xs text-red-600">Top-3 실패</span>
-        </div>
+    <ChartCard
+      title="검출 구조"
+      description="실제 책 한 권을 기준으로 정상·분할·병합·누락을 구분합니다."
+    >
+      <div className="h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="46%"
+              innerRadius={58}
+              outerRadius={88}
+              paddingAngle={2}
+              stroke="white"
+              strokeWidth={2}
+            >
+              {data.map((entry) => (
+                <Cell key={entry.name} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value) => [`${value}권`, "도서 수"]} />
+            <Legend verticalAlign="bottom" iconType="circle" iconSize={9} />
+          </PieChart>
+        </ResponsiveContainer>
       </div>
-      <div className="mt-4 space-y-4">
-        <AccuracyBar label="DB Top-1" value={metrics.top1_accuracy} />
-        <AccuracyBar
-          label="DB Top-3"
-          value={metrics.top3_accuracy}
-          color="bg-indigo-600"
-        />
-      </div>
-      <p className="mt-3 text-xs text-muted-foreground">
-        DB GT {metrics.db_evaluated_count}권 기준
-      </p>
-    </div>
+    </ChartCard>
   );
 }
 
-function OcrFieldAccuracy({ metrics }: { metrics: MatchingMetrics }) {
+function MatchingChart({ metrics }: { metrics: MatchingMetrics }) {
+  const top1 = Math.round(metrics.db_evaluated_count * metrics.top1_accuracy);
+  const top3 = Math.round(metrics.db_evaluated_count * metrics.top3_accuracy);
+  const data = [
+    { name: "Top-1 정답", value: top1, color: COLORS.blue },
+    { name: "Top-3 추가", value: Math.max(0, top3 - top1), color: COLORS.cyan },
+    {
+      name: "Top-3 실패",
+      value: Math.max(0, metrics.db_evaluated_count - top3),
+      color: COLORS.red,
+    },
+  ];
+
   return (
-    <div>
-      <h4 className="font-bold">OCR 필드별 정확도</h4>
-      <p className="mt-1 text-xs text-muted-foreground">
-        GT와 연결된 책등의 정규화 필드 비교 결과입니다.
-      </p>
-      <div className="mt-4 space-y-4">
-        <AccuracyBar
-          label="제목"
-          value={metrics.title_normalized_accuracy}
-          color="bg-cyan-600"
-        />
-        <AccuracyBar
-          label="청구기호"
-          value={metrics.call_number_exact_accuracy}
-          color="bg-amber-500"
-        />
-        <AccuracyBar
-          label="KDC"
-          value={metrics.kdc_accuracy}
-          color="bg-emerald-600"
-        />
-        <AccuracyBar
-          label="도서기호"
-          value={metrics.book_code_accuracy}
-          color="bg-violet-600"
-        />
+    <ChartCard
+      title="DB 도서 식별 결과"
+      description={`DB 정답이 지정된 ${metrics.db_evaluated_count}권의 후보 순위입니다.`}
+    >
+      <div className="relative h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="46%"
+              innerRadius={58}
+              outerRadius={88}
+              paddingAngle={2}
+              stroke="white"
+              strokeWidth={2}
+            >
+              {data.map((entry) => (
+                <Cell key={entry.name} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value) => [`${value}권`, "도서 수"]} />
+            <Legend verticalAlign="bottom" iconType="circle" iconSize={9} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-x-0 top-[6.2rem] text-center">
+          <p className="text-2xl font-extrabold tabular-nums text-zinc-900">
+            {percent(metrics.top1_accuracy)}
+          </p>
+          <p className="text-[11px] text-zinc-500">Top-1</p>
+        </div>
       </div>
-    </div>
+    </ChartCard>
+  );
+}
+
+function FieldAccuracyChart({ metrics }: { metrics: MatchingMetrics }) {
+  const data = [
+    { name: "제목", accuracy: metrics.title_normalized_accuracy * 100 },
+    { name: "청구기호", accuracy: metrics.call_number_exact_accuracy * 100 },
+    { name: "KDC", accuracy: metrics.kdc_accuracy * 100 },
+    { name: "도서기호", accuracy: metrics.book_code_accuracy * 100 },
+  ];
+
+  return (
+    <ChartCard
+      title="OCR 필드별 정확도"
+      description="GT와 OCR 결과를 필드별로 정규화해 비교했습니다."
+    >
+      <div className="h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={data}
+            layout="vertical"
+            margin={{ left: 4, right: 24 }}
+          >
+            <CartesianGrid
+              stroke={COLORS.grid}
+              strokeDasharray="3 3"
+              horizontal={false}
+            />
+            <XAxis
+              type="number"
+              domain={[0, 100]}
+              tickFormatter={(value) => `${value}%`}
+              tick={{ fill: COLORS.muted, fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={62}
+              tick={{ fill: "#3F3F46", fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip
+              cursor={{ fill: "#F4F4F5" }}
+              formatter={(value) => [`${Number(value).toFixed(1)}%`, "정확도"]}
+            />
+            <Bar
+              dataKey="accuracy"
+              fill={COLORS.navy}
+              radius={[0, 4, 4, 0]}
+              maxBarSize={24}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </ChartCard>
   );
 }
 
@@ -262,30 +354,27 @@ export function EvaluationCharts({
   matchingMetrics?: MatchingMetrics | null;
 }) {
   return (
-    <section className="mb-4 border bg-white p-4 shadow-sm">
-      <div className="mb-4">
-        <h3 className="text-lg font-extrabold">평가 결과 시각화</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          숫자 지표와 동일한 GT 평가 결과를 차트로 표시합니다.
+    <section className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 md:p-6">
+      <div className="mb-6 border-b border-zinc-200 pb-4">
+        <p className="text-xs font-semibold tracking-widest text-zinc-500 uppercase">
+          Ground Truth Evaluation
+        </p>
+        <h3 className="mt-1 text-xl font-extrabold tracking-tight text-zinc-950">
+          평가 결과 시각화
+        </h3>
+        <p className="mt-1 text-sm text-zinc-500">
+          숫자 지표와 동일한 GT 평가 결과를 통계 차트로 표시합니다.
         </p>
       </div>
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-xl border p-4">
-          <DetectionConfusionMatrix metrics={detectionMetrics} />
-        </div>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <DetectionConfusionMatrix metrics={detectionMetrics} />
         {structureMetrics ? (
-          <div className="rounded-xl border p-4">
-            <StructureSummary metrics={structureMetrics} />
-          </div>
+          <StructureChart metrics={structureMetrics} />
         ) : null}
         {matchingMetrics ? (
           <>
-            <div className="rounded-xl border p-4">
-              <MatchingSummary metrics={matchingMetrics} />
-            </div>
-            <div className="rounded-xl border p-4">
-              <OcrFieldAccuracy metrics={matchingMetrics} />
-            </div>
+            <MatchingChart metrics={matchingMetrics} />
+            <FieldAccuracyChart metrics={matchingMetrics} />
           </>
         ) : null}
       </div>
