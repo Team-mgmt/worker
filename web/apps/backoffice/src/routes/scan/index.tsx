@@ -521,10 +521,12 @@ function PatronBookFinder() {
 
   return (
     <main className="mx-auto min-h-dvh max-w-2xl bg-zinc-50 px-4 py-6 text-zinc-950">
-      <h1 className="text-2xl font-black">ShelfAlign 책 찾기</h1>
-      <p className="mt-1 text-sm text-zinc-600">
-        찾을 책을 선택하고 서가를 촬영하세요.
-      </p>
+      <header className="text-center">
+        <h1 className="text-2xl font-black">노원중앙도서관 도서 찾기</h1>
+        <p className="mt-1 text-sm text-zinc-600">
+          도서가 안 보인다면 찾을 책을 선택하고 서가를 촬영하세요
+        </p>
+      </header>
 
       <section className="mt-5 space-y-3 border bg-white p-4">
         <Select
