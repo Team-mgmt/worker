@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
+  BarChart3Icon,
   CheckIcon,
   Loader2Icon,
   MousePointer2Icon,
@@ -35,6 +36,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+import { EvaluationCharts } from "./-components/EvaluationCharts";
 
 export const Route = createFileRoute("/_app/evaluation/")({
   component: EvaluationPage,
@@ -294,6 +297,7 @@ function EvaluationPage() {
     [],
   );
   const [showIouOverlay, setShowIouOverlay] = useState(true);
+  const [showCharts, setShowCharts] = useState(false);
   const [structureMetrics, setStructureMetrics] =
     useState<DetectionStructureMetrics | null>(null);
   const [placementMetrics, setPlacementMetrics] =
@@ -681,6 +685,25 @@ function EvaluationPage() {
         <div className="mb-4 border-l-4 border-zinc-700 bg-white px-4 py-3 text-sm">
           {message}
         </div>
+      ) : null}
+      {metrics ? (
+        <div className="mb-3 flex justify-end">
+          <Button
+            type="button"
+            variant={showCharts ? "default" : "outline"}
+            onClick={() => setShowCharts((current) => !current)}
+          >
+            <BarChart3Icon />
+            {showCharts ? "차트 닫기" : "차트로 보기"}
+          </Button>
+        </div>
+      ) : null}
+      {metrics && showCharts ? (
+        <EvaluationCharts
+          detectionMetrics={metrics}
+          structureMetrics={structureMetrics}
+          matchingMetrics={matchingMetrics}
+        />
       ) : null}
       {metrics ? (
         <div className="mb-4 grid grid-cols-2 border bg-white md:grid-cols-3 xl:grid-cols-6">
