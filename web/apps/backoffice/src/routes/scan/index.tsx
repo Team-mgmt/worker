@@ -648,7 +648,7 @@ function PatronBookFinder() {
             size="lg"
             variant="secondary"
             disabled={busy}
-            className="col-span-2"
+            className="hidden"
           >
             <label className="cursor-pointer">
               {busy ? (
@@ -674,7 +674,7 @@ function PatronBookFinder() {
             size="lg"
             variant="default"
             disabled={busy && !liveActive}
-            className="col-span-2"
+            className="hidden"
             onClick={() => void startLiveSearch()}
           >
             <ScanSearchIcon className="size-5" />
