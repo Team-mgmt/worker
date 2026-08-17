@@ -14,3 +14,16 @@
 사용자 책 찾기 API와 기존 호출은 명시적인 값이 없으면 기존 기본값 `0.50`을 사용한다. 임계치 변경은 OCR이나 DB 매칭 점수를 직접 바꾸지 않고, 그 앞 단계에서 살아남는 책등 검출 목록만 바꾼다.
 
 Modal 코드가 임계치를 실제 추론에 적용하므로 Worker와 백오피스 배포 외에 `modal deploy modal_app.py` 재배포가 필요하다.
+
+## 저장된 결과 시각화
+
+과거 실행은 재추론하지 않고 다음 URL에서 임계치 적용 결과를 확인할 수 있다.
+
+```text
+/inference/artifacts/{run_id}/confidence-visualization
+  ?library_code={library_code}
+  &threshold=0.60
+  &focus_order={기준 검출 순서}
+```
+
+초록색은 선택 임계치 이상이라 유지되는 박스, 빨간색은 임계치 미만이라 제거되는 박스다. `focus_order`를 지정하면 기준 박스와 겹치는 후보만 확대한다. 이 화면은 저장된 NMS 이후 결과를 다시 분류하는 것이며, 저장되지 않은 NMS 이전 원시 후보를 복원하지는 않는다.

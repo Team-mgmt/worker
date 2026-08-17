@@ -21,6 +21,7 @@ from worker.services.detection_evaluation_service import (
     calculate_placement_metrics,
     predictions_from_result,
 )
+from worker.services.detection_confidence_visualization_service import render_confidence_visualization
 from worker.services.matching_evaluation_service import calculate_matching_metrics
 from worker.services.matching_service import normalize_catalog_text, normalize_core_title, split_call_number
 from worker.services.scan_artifact_service import scan_artifact_service
@@ -126,6 +127,28 @@ async def get_artifact_original(run_id: str, library_code: str | None = None):
         raise HTTPException(status_code=422, detail="The artifact result has no original image key.")
     body, content_type = await scan_artifact_service.get_bytes(original_key)
     return Response(content=body, media_type=content_type, headers={"Cache-Control": "private, max-age=300"})
+
+
+@router.get("/{run_id}/confidence-visualization")
+async def get_confidence_visualization(
+    run_id: str,
+    library_code: str | None = None,
+    threshold: float = Query(default=0.6, ge=0.05, le=0.95),
+    focus_order: int | None = Query(default=None, ge=1),
+):
+    """Render a saved post-NMS result under a different confidence threshold."""
+    _, result = await load_run(run_id, library_code)
+    original_key = result.get("artifacts", {}).get("original_key")
+    if not original_key:
+        raise HTTPException(status_code=422, detail="The artifact result has no original image key.")
+    original, _ = await scan_artifact_service.get_bytes(original_key)
+    body = render_confidence_visualization(
+        original,
+        result,
+        threshold=threshold,
+        focus_order=focus_order,
+    )
+    return Response(content=body, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=300"})
 
 
 @router.put("/{run_id}/ground-truth", response_model=GroundTruthSaveResponse)
