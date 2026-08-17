@@ -5,7 +5,7 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
-import qmrPlugin from "@qmr/eslint-plugin";
+import shelfalignPlugin from "@shelfalign/eslint-plugin";
 
 export default defineConfig([
   globalIgnores(["dist"]),
@@ -18,7 +18,7 @@ export default defineConfig([
     ],
     plugins: {
       import: pluginImport,
-      qmr: qmrPlugin,
+      shelfalign: shelfalignPlugin,
     },
     languageOptions: {
       ecmaVersion: 2020,
@@ -48,11 +48,6 @@ export default defineConfig([
               group: "external",
               position: "before",
             },
-            {
-              pattern: "@qmr/**",
-              group: "external",
-              position: "after",
-            },
             // === internal alias sub-ordering ===
             // === relatives ===
           ],
@@ -66,7 +61,7 @@ export default defineConfig([
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      "qmr/zod-serializer-return-type": "error",
+      "shelfalign/zod-serializer-return-type": "error",
     },
   },
 ]);
