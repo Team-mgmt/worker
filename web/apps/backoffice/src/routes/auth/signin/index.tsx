@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
 import { Loader2Icon, LockKeyholeIcon } from "lucide-react";
 
@@ -27,8 +27,7 @@ type SignInResponse = {
 };
 
 function SignInPage() {
-  const navigate = useNavigate();
-  const [email, setEmail] = useState("admin@shelfaligner.com");
+  const [email, setEmail] = useState("ljs@email.com");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,7 +60,11 @@ function SignInPage() {
 
       localStorage.setItem("accessToken", payload.data.accessToken);
       localStorage.setItem("organization", organization.organizationId);
-      await navigate({ to: "/shelf-ops", replace: true });
+
+      // Start the authenticated area with a fresh React Query cache. A client-side
+      // navigation can reuse the rejected auth.session query from before sign-in
+      // and immediately send the user back here even though sign-in succeeded.
+      window.location.replace("/shelf-ops");
     } catch (caught) {
       setError(
         caught instanceof Error
